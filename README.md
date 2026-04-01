@@ -1,102 +1,88 @@
-<div align="center">    
- 
-# 🌎 GeoCLIP: Clip-Inspired Alignment between Locations and Images for Effective Worldwide Geo-localization
+# 🌍 GeoCLIP - OSINT Dashboard & Worldwide Geo-localization
 
-[![Paper](http://img.shields.io/badge/paper-arxiv.2309.16020-B31B1B.svg)](https://arxiv.org/abs/2309.16020v2)
-[![Conference](https://img.shields.io/badge/NeurIPS-2023-blue)]()
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/geoclip-clip-inspired-alignment-between/photo-geolocation-estimation-on-im2gps3k)](https://paperswithcode.com/sota/photo-geolocation-estimation-on-im2gps3k?p=geoclip-clip-inspired-alignment-between)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/geoclip-clip-inspired-alignment-between/gps-embeddings-on-geo-tagged-nus-wide-gps)](https://paperswithcode.com/sota/gps-embeddings-on-geo-tagged-nus-wide-gps?p=geoclip-clip-inspired-alignment-between)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/geoclip-clip-inspired-alignment-between/photo-geolocation-estimation-on-gws15k)](https://paperswithcode.com/sota/photo-geolocation-estimation-on-gws15k?p=geoclip-clip-inspired-alignment-between)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/geoclip-clip-inspired-alignment-between/gps-embeddings-on-geo-tagged-nus-wide-gps-1)](https://paperswithcode.com/sota/gps-embeddings-on-geo-tagged-nus-wide-gps-1?p=geoclip-clip-inspired-alignment-between)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/geoclip-clip-inspired-alignment-between/photo-geolocation-estimation-on-yfcc26k)](https://paperswithcode.com/sota/photo-geolocation-estimation-on-yfcc26k?p=geoclip-clip-inspired-alignment-between)
+![GeoCLIP Method](figures/method.png)
 
-![ALT TEXT](/figures/GeoCLIP.png)
+Questo repository è un fork operativo del progetto accademico originale [GeoCLIP](https://github.com/VicenteVivan/geo-clip). Il motore neurale di base è stato mantenuto intatto, ma è stato incapsulato in una **Dashboard OSINT** progettata per indagini reali. 
 
-</div>
+L'obiettivo è smettere di guardare solo le percentuali statistiche dell'IA da un terminale e iniziare a incrociarle con testi, loghi e metadati estratti dall'immagine per ottenere conferme visive e contestuali.
 
-### 📍 Try out our demo! [![Colab Demo](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1p3f5F3fIw9CD7H4RvfnHO9g-J45qUPHp?usp=sharing)
+---
 
-## Description
+## 🧠 Il Motore Originale (Come funziona GeoCLIP)
 
-GeoCLIP addresses the challenges of worldwide image geo-localization by introducing a novel CLIP-inspired approach that aligns images with geographical locations, achieving state-of-the-art results on geo-localization and GPS to vector representation on benchmark datasets (Im2GPS3k, YFCC26k, GWS15k, and the Geo-Tagged NUS-Wide Dataset). Our location encoder models the Earth as a continuous function, learning semantically rich, CLIP-aligned features that are suitable for geo-localization. Additionally, our location encoder architecture generalizes, making it suitable for use as a pre-trained GPS encoder to aid geo-aware neural architectures.
+*Dalla documentazione originale dell'autore:*
+GeoCLIP affronta la sfida della geolocalizzazione globale delle immagini introducendo un approccio ispirato a CLIP che allinea immagini e posizioni geografiche. Il *location encoder* modella la Terra come una funzione continua, apprendendo feature semanticamente ricche e adatte alla geolocalizzazione.
 
-![ALT TEXT](/figures/method.png)
+Simile al modello CLIP di OpenAI, GeoCLIP è addestrato in modo contrastivo abbinando coppie Immagine-GPS. Utilizzando il dataset MP-16, composto da 4.7 milioni di immagini scattate in tutto il mondo, GeoCLIP apprende le caratteristiche visive distintive associate ai diversi luoghi del pianeta.
 
-## Method
+![Inference](figures/inference.png)
 
-Similarly to OpenAI's CLIP, GeoCLIP is trained contrastively by matching Image-GPS pairs. By using the MP-16 dataset, composed of 4.7M Images taken across the globe, GeoCLIP learns distinctive visual features associated with different locations on earth.
+---
 
-_🚧 Repo Under Construction 🔨_
+## ⚡ L'Evoluzione: OSINT Dashboard (v3.0)
 
-## 📎 Getting Started: API
+La teoria statistica incontra l'intelligence visiva. Questo fork chiude il cerchio dell'analisi automatizzando i controlli incrociati:
 
-You can install GeoCLIP's module using pip:
+* **GUI Gradio:** Interfaccia dark-mode professionale. Trascini la foto e parte l'analisi. Nessuna riga di comando necessaria.
+* **Mappe Interattive (Folium):** I 5 migliori risultati stimati dall'IA vengono piazzati su una mappa interattiva (CartoDB Dark Matter) per darti immediatamente il contesto geografico.
+* **Scanner EXIF:** Se la foto non è stata piallata dalle compressioni dei social network, il tool estrae i metadati originali (coordinate GPS, marca e modello del dispositivo, data di scatto).
+* **Motore OCR (EasyOCR):** Legge in automatico cartelli stradali, insegne e scritte nell'immagine. Se GeoCLIP piazza il pin in Germania e l'OCR estrae la parola "Apotheke", hai una conferma solida sulla zona linguistica.
 
-```
-pip install geoclip
-```
+---
 
-or directly from source:
+## 🔮 Roadmap & Future Implementazioni
 
-```
-git clone https://github.com/VicenteVivan/geo-clip
-cd geo-clip
-python setup.py install
-```
+Le reti neurali visive da sole sono cieche se non c'è una logica a collegare i dati. Ecco cosa verrà integrato per chiudere la pipeline di intelligence:
 
-## 🗺️📍 Worldwide Image Geolocalization
+* **Object Detection (YOLOv8):** Riconoscimento di elementi chiave per la geolocalizzazione (es. semafori specifici, targhe, vegetazione endemica, segnaletica stradale).
+* **LLM Reasoning:** Integrazione API di un modello linguistico che analizzi l'output combinato (GeoCLIP + OCR + YOLO) e formuli una deduzione logica finale (es. *"L'IA dice Europa, l'OCR legge tedesco, YOLO rileva un tram giallo. -> Berlino, Germania"*).
+* **Reverse Image Search:** Script integrato per lanciare in automatico i ritagli dell'immagine su motori come Yandex o Google Lens.
+* **Cronolocalizzazione:** Calcolo grezzo di ora solare e orientamento incrociando l'angolazione delle ombre con la data EXIF.
 
-![ALT TEXT](/figures/inference.png)
+---
 
-### Usage: GeoCLIP Inference
+## ⚙️ Installazione
 
-```python
-import torch
-from geoclip import GeoCLIP
+Requisiti: Python 3.8+. L'uso di un ambiente virtuale (`venv`) è obbligatorio per non creare conflitti con le librerie di sistema.
 
-model = GeoCLIP()
+```bash
+# 1. Clona il fork
+git clone [https://github.com/Marchy02/Geo-clip-gui.git](https://github.com/Marchy02/Geo-clip-gui.git)
+cd Geo-clip-gui
 
-image_path = "image.png"
+# 2. Crea e attiva il venv
+python -m venv venv
+source venv/bin/activate  # Su Linux/Mac
+# venv\Scripts\activate   # Su Windows
 
-top_pred_gps, top_pred_prob = model.predict(image_path, top_k=5)
+# 3. Collega il motore IA (Editable mode)
+pip install -e .
 
-print("Top 5 GPS Predictions")
-print("=====================")
-for i in range(5):
-    lat, lon = top_pred_gps[i]
-    print(f"Prediction {i+1}: ({lat:.6f}, {lon:.6f})")
-    print(f"Probability: {top_pred_prob[i]:.6f}")
-    print("")
+# 4. Installa le librerie della dashboard
+pip install -r requirements.txt
 ```
 
-## 🌐 Worldwide GPS Embeddings
+---
 
-In our paper, we show that once trained, our location encoder can assist other geo-aware neural architectures. Specifically, we explore our location encoder's ability to improve multi-class classification accuracy. We achieved state-of-the-art results on the Geo-Tagged NUS-Wide Dataset by concatenating GPS features from our pre-trained location encoder with an image's visual features. Additionally, we found that the GPS features learned by our location encoder, even without extra information, are effective for geo-aware image classification, achieving state-of-the-art performance in the GPS-only multi-class classification task on the same dataset.
+## 🚀 Come si usa
 
-![ALT TEXT](/figures/downstream-task.png)
+A `venv` attivo, lancia semplicemente lo script dalla radice del progetto:
 
-### Usage: Pre-Trained Location Encoder
-
-```python
-import torch
-from geoclip import LocationEncoder
-
-gps_encoder = LocationEncoder()
-
-gps_data = torch.Tensor([[40.7128, -74.0060], [34.0522, -118.2437]])  # NYC and LA in lat, lon
-gps_embeddings = gps_encoder(gps_data)
-print(gps_embeddings.shape) # (2, 512)
+```bash
+python geoclip_gui.py
 ```
 
-## Acknowledgments
+Il terminale avvierà il server locale (solitamente `http://127.0.0.1:7860`). Aprilo nel browser, carica l'immagine e avvia la pipeline.
 
-This project incorporates code from Joshua M. Long's Random Fourier Features Pytorch. For the original source, visit [here](https://github.com/jmclong/random-fourier-features-pytorch).
+*Nota: Al primissimo avvio, Python scaricherà in automatico da HuggingFace i pesi di GeoCLIP e i modelli linguistici di EasyOCR. L'operazione richiederà qualche minuto a seconda della connessione.*
 
-## Citation
+---
 
-If you find GeoCLIP beneficial for your research, please consider citing us with the following BibTeX entry:
+## 📜 Crediti Originali
 
-```
+Tutto il motore neurale alla base di questo strumento è **GeoCLIP**. Se utilizzi questo repository per paper o scopi di ricerca accademica, sei tenuto a citare i creatori originali del modello:
+
+```bibtex
 @inproceedings{geoclip,
   title={GeoCLIP: Clip-Inspired Alignment between Locations and Images for Effective Worldwide Geo-localization},
   author={Vivanco, Vicente and Nayak, Gaurav Kumar and Shah, Mubarak},
