@@ -12,6 +12,7 @@ from geoclip import GeoCLIP
 from ultralytics import YOLO
 import easyocr
 import config
+from google.genai import types
 
 try:
     from dotenv import load_dotenv
@@ -142,34 +143,54 @@ def run_gemini(img_path: str, top: GeoResult, ocr_texts: list[str], yolo_objects
     
     try:
         prompt = f"""
-        ANALISI OSINT.
-        GeoCLIP propone: {top.lat}, {top.lon}
-        OCR: {ocr_texts if ocr_texts else 'Nessuno'}
-        YOLO: {yolo_objects if yolo_objects else 'Nessuno'}
+        SEI UN ANALISTA OSINT FORENSE.
+        Dati rilevati:
+        - GeoCLIP propone: {top.lat}, {top.lon} (ATTENZIONE: Questi dati sono inaffidabili. NON usarli per confermare l'identità del luogo senza prove visive indipendenti).
+        - Testo OCR: {ocr_texts if ocr_texts else 'Nessun testo'}
+        - Oggetti YOLO: {yolo_objects if yolo_objects else 'Nessun oggetto'}
         
-        Identifica il luogo reale. Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:
+        IL TUO COMPITO:
+        Usa la ricerca web SOLO se ci sono testi OCR o landmark visivi chiari. 
+        Se l'immagine è una mappa satellitare generica, rurale o senza dettagli unici, NON INVENTARE.
+        
+        Rispondi ESCLUSIVAMENTE con un JSON:
         {{
             "override": true, 
             "lat": 45.4426, 
             "lon": 10.9972, 
-            "location_name": "Nome esatto (es. Piazza delle Erbe, Verona, Italia)",
-            "description": "Spiega cos'è questo luogo e indica i dettagli visivi esatti che confermano l'identità."
+            "location_name": "Nome",
+            "description": "Spiega le prove visive indipendenti trovate."
         }}
-        Se non riconosci con certezza il posto, metti "override": false. Niente markdown. Solo JSON crudo.
+        
+        REGOLA DI FERRO: Se non hai trovato una prova inconfutabile tramite OCR o dettagli architettonici unici, DEVI impostare "override": false. Non fare descrizioni basate solo sulle coordinate di GeoCLIP. NESSUN TESTO FUORI DAL JSON.
         """
         
+        # --- CONFIGURAZIONE PULITA ---
+        # Nessun riferimento a mime_type qui dentro. Solo il tool di ricerca e la temperatura bassa.
+        my_config = types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            temperature=0.1
+        )
+        
+        # Chiamata all'API
         response = _gemini_client.models.generate_content(
             model=config.GEMINI_MODEL_NAME,
             contents=[prompt, Image.open(img_path)],
-            config=types.GenerateContentConfig(response_mime_type="application/json")
+            config=my_config
         )
         
-        # Pulizia stringa in caso Gemini aggiunga i backtick del markdown
+        # Pulizia brutale di eventuali formattazioni markdown che Gemini potrebbe aggiungere
+        import re
+        import json
         clean_json = re.sub(r"```json\n|```", "", response.text).strip()
+        
         return json.loads(clean_json)
         
+    except json.JSONDecodeError as e:
+        return {"override": False, "error": f"Errore parsing JSON (Gemini ha scritto testo fuori formato): {e}"}
     except Exception as exc:
-        return {"override": False, "error": f"Errore elaborazione Gemini: {exc}"}
+        return {"override": False, "error": f"Errore API Gemini: {exc}"}
+
 
 # --- PIPELINE PRINCIPALE ---
 def run_full_analysis(img_path: str) -> AnalysisResult:
