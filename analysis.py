@@ -70,6 +70,53 @@ def extract_exif(img_path: str) -> dict[str, str]:
         }
     except: 
         return {}
+    
+def _convert_to_degrees(value):
+    """Converte le coordinate GPS da DMS a gradi decimali."""
+    d = float(value[0])
+    m = float(value[1])
+    s = float(value[2])
+    return d + (m / 60.0) + (s / 3600.0)
+
+def extract_exif(img_path: str) -> dict[str, str]:
+    exif_dict = {}
+    try:
+        img = Image.open(img_path)
+        exif_raw = img._getexif()
+        if not exif_raw:
+            return {}
+
+        # 1. Estrazione dati base
+        for k, v in exif_raw.items():
+            tag = ExifTags.TAGS.get(k, k)
+            if tag in {"Make", "Model", "DateTimeOriginal", "Software"}:
+                exif_dict[tag] = str(v)[:80]
+
+        # 2. Estrazione GPS (Tag 34853)
+        if 34853 in exif_raw:
+            gps_info = {}
+            for key in exif_raw[34853].keys():
+                tag_name = ExifTags.GPSTAGS.get(key, key)
+                gps_info[tag_name] = exif_raw[34853][key]
+
+            # Calcolo Latitudine
+            if 'GPSLatitude' in gps_info and 'GPSLatitudeRef' in gps_info:
+                lat = _convert_to_degrees(gps_info['GPSLatitude'])
+                if gps_info['GPSLatitudeRef'] != 'N':
+                    lat = -lat
+                exif_dict['GPS_Lat'] = str(round(lat, 6))
+
+            # Calcolo Longitudine
+            if 'GPSLongitude' in gps_info and 'GPSLongitudeRef' in gps_info:
+                lon = _convert_to_degrees(gps_info['GPSLongitude'])
+                if gps_info['GPSLongitudeRef'] != 'E':
+                    lon = -lon
+                exif_dict['GPS_Lon'] = str(round(lon, 6))
+
+        return exif_dict
+    except Exception as e:
+        print(f"Errore parsing EXIF: {e}")
+        return {}
 
 def run_ocr(img_path: str) -> list[str]:
     return [text for (_, text, prob) in _ocr.readtext(img_path) if prob > config.OCR_CONF_THRESHOLD]
