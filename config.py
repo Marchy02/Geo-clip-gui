@@ -2,8 +2,6 @@
 # Imposta la chiave Gemini con: export GEMINI_API_KEY="la_tua_chiave"
 # oppure aggiungi GEMINI_API_KEY=... al file .env (già in .gitignore).
 
-import os
-
 # --- Gemini ---
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL_NAME: str = "gemini-1.5-flash"
