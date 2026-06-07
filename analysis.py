@@ -61,17 +61,6 @@ _gemini_client = _init_gemini()
 print("Modelli pronti." + (" [Gemini ✓]" if _gemini_client else " [Gemini ✗]"))
 
 # --- FUNZIONI DI ESTRAZIONE ---
-def extract_exif(img_path: str) -> dict[str, str]:
-    try:
-        raw = Image.open(img_path)._getexif() or {}
-        return {
-            ExifTags.TAGS[k]: str(v)[:80]
-            for k, v in raw.items()
-            if k in ExifTags.TAGS and ExifTags.TAGS[k] in {"Make", "Model", "DateTimeOriginal", "Software"}
-        }
-    except: 
-        return {}
-    
 def _convert_to_degrees(value):
     """Converte le coordinate GPS da DMS a gradi decimali."""
     d = float(value[0])
