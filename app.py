@@ -2,6 +2,7 @@
 import gradio as gr
 import folium
 import base64
+import html
 import io
 from analysis import run_full_analysis
 
@@ -9,8 +10,9 @@ from analysis import run_full_analysis
 def get_map_base64(lat, lon, popup_text, color):
     m = folium.Map(location=[lat, lon], zoom_start=13, tiles='CartoDB dark_matter')
     folium.Marker(
-        [lat, lon], 
-        popup=popup_text, 
+        [lat, lon],
+        # popup_text può contenere output non fidato dell'LLM: va escapato
+        popup=html.escape(str(popup_text)),
         icon=folium.Icon(color=color, icon='info-sign')
     ).add_to(m)
     
@@ -29,40 +31,61 @@ def process_ui(img_path):
         g_data = res.gemini_data
 
         # --- LOGICA DI OVERRIDE ---
-        if g_data.get("override") is True:
+        override_lat = g_data.get("lat")
+        override_lon = g_data.get("lon")
+        # L'override è valido solo se Gemini fornisce coordinate numeriche reali:
+        # valori None/non numerici farebbero crashare folium.Map e scarterebbero
+        # tutti gli altri risultati. In tal caso si ripiega su GeoCLIP.
+        override_valid = (
+            g_data.get("override") is True
+            and isinstance(override_lat, (int, float)) and not isinstance(override_lat, bool)
+            and isinstance(override_lon, (int, float)) and not isinstance(override_lon, bool)
+        )
+
+        if override_valid:
             # Gemini ha preso il controllo
-            lat = g_data.get("lat")
-            lon = g_data.get("lon")
-            nome = g_data.get("location_name", "Località Rilevata")
-            desc = g_data.get("description", "Dettagli visivi verificati dall'IA.")
-            
+            lat = override_lat
+            lon = override_lon
+            nome = html.escape(str(g_data.get("location_name", "Località Rilevata")))
+            desc = html.escape(str(g_data.get("description", "Dettagli visivi verificati dall'IA.")))
+
             map_html = get_map_base64(lat, lon, nome, "red")
-            
+
             verdetto_html = f"""
             <div style='background:#2C1A00; border:2px solid #FFD700; border-radius:8px; padding:15px;'>
                 <h3 style='color:#FFD700; margin-top:0;'>🎯 OVERRIDE IA: {nome}</h3>
                 <p style='color:#E2E8F0; font-size:0.95rem; margin-bottom:0;'><b>Descrizione Tecnica:</b> {desc}</p>
             </div>
             """
-        else:
+        elif res.geo_predictions:
             # Comando a GeoCLIP
             top_geo = res.geo_predictions[0]
             lat, lon = top_geo.lat, top_geo.lon
             map_html = get_map_base64(lat, lon, "Predizione GeoCLIP", "green")
-            
-            err_msg = g_data.get("error", "Il luogo non è stato riconosciuto visivamente. Affidarsi ai dati probabilistici.")
+
+            err_msg = html.escape(str(g_data.get("error", "Il luogo non è stato riconosciuto visivamente. Affidarsi ai dati probabilistici.")))
             verdetto_html = f"""
             <div style='background:#111827; border:1px solid #374151; border-radius:8px; padding:15px;'>
                 <h3 style='color:#00FFB2; margin-top:0;'>🤖 ANALISI STANDARD GEOCLIP</h3>
                 <p style='color:#A1A1AA; font-size:0.9rem; margin-bottom:0;'>{err_msg}</p>
             </div>
             """
+        else:
+            # Nessun override valido e nessuna predizione GeoCLIP: nessuna mappa.
+            map_html = "<div class='osint-card'>Nessuna localizzazione disponibile.</div>"
+            verdetto_html = """
+            <div style='background:#111827; border:1px solid #374151; border-radius:8px; padding:15px;'>
+                <h3 style='color:#00FFB2; margin-top:0;'>🤖 ANALISI STANDARD GEOCLIP</h3>
+                <p style='color:#A1A1AA; font-size:0.9rem; margin-bottom:0;'>Nessuna predizione disponibile.</p>
+            </div>
+            """
 
         # --- FORMATTAZIONE ALTRI DATI ---
-        geoclip_raw = "<br>".join([f"#{i+1} {g.lat:.4f}, {g.lon:.4f} ({g.prob*100:.1f}%)" for i, g in enumerate(res.geo_predictions)])
-        ocr_raw = ", ".join(res.ocr_texts) if res.ocr_texts else "Nessun testo rilevato."
-        yolo_raw = ", ".join(res.yolo_objects) if res.yolo_objects else "Nessun oggetto rilevato."
-        exif_raw = "<br>".join([f"<b>{k}:</b> {v}" for k, v in res.exif_info.items()]) if res.exif_info else "Nessun metadato rilevante."
+        # OCR/EXIF provengono dall'immagine (non fidati) -> escape prima dell'HTML.
+        geoclip_raw = "<br>".join([f"#{i+1} {g.lat:.4f}, {g.lon:.4f} ({g.prob*100:.1f}%)" for i, g in enumerate(res.geo_predictions)]) or "Nessuna predizione."
+        ocr_raw = ", ".join(html.escape(t) for t in res.ocr_texts) if res.ocr_texts else "Nessun testo rilevato."
+        yolo_raw = ", ".join(html.escape(o) for o in res.yolo_objects) if res.yolo_objects else "Nessun oggetto rilevato."
+        exif_raw = "<br>".join([f"<b>{html.escape(str(k))}:</b> {html.escape(str(v))}" for k, v in res.exif_info.items()]) if res.exif_info else "Nessun metadato rilevante."
 
         return (
             map_html, 

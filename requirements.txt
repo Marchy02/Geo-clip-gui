@@ -1,11 +1,27 @@
-torch==2.11.0
-torchvision==0.26.0
-pillow==12.1.1
-transformers==5.4.0
-pandas==3.0.2
-numpy==2.4.4
-geopy==2.4.1
-folium==0.20.0
-gradio==6.10.0
-easyocr==1.7.2
-wandb==0.25.1
+# Dashboard runtime dependencies.
+# Pinned to conservative version ranges known to exist on PyPI.
+# Note: the GeoCLIP neural engine itself is installed in editable mode
+# via `pip install -e .` (see README); `geoclip` is also published on PyPI.
+
+# GUI
+gradio>=4,<5
+folium>=0.16,<0.18
+
+# Imaging / EXIF
+pillow>=10,<11
+
+# OSINT models
+geoclip>=1.2,<2
+ultralytics>=8.1,<9
+easyocr>=1.7,<2
+
+# LLM arbiter (Gemini)
+google-genai>=0.3,<2
+
+# Deep learning runtime (required by geoclip / ultralytics / easyocr)
+torch>=2.2,<2.4
+torchvision>=0.17,<0.19
+numpy>=1.26,<2
+
+# Environment / config
+python-dotenv>=1.0,<2
