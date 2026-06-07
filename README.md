@@ -19,25 +19,38 @@ Simile al modello CLIP di OpenAI, GeoCLIP è addestrato in modo contrastivo abbi
 
 ---
 
-## ⚡ L'Evoluzione: OSINT Dashboard (v3.0)
+## ⚡ L'Evoluzione: OSINT Dashboard (v4.0)
 
 La teoria statistica incontra l'intelligence visiva. Questo fork chiude il cerchio dell'analisi automatizzando i controlli incrociati:
 
 * **GUI Gradio:** Interfaccia dark-mode professionale. Trascini la foto e parte l'analisi. Nessuna riga di comando necessaria.
-* **Mappe Interattive (Folium):** I 5 migliori risultati stimati dall'IA vengono piazzati su una mappa interattiva (CartoDB Dark Matter) per darti immediatamente il contesto geografico.
+* **Mappe Interattive (Folium):** I migliori risultati stimati dall'IA vengono piazzati su una mappa interattiva (CartoDB Dark Matter) per darti immediatamente il contesto geografico.
 * **Scanner EXIF:** Se la foto non è stata piallata dalle compressioni dei social network, il tool estrae i metadati originali (coordinate GPS, marca e modello del dispositivo, data di scatto).
 * **Motore OCR (EasyOCR):** Legge in automatico cartelli stradali, insegne e scritte nell'immagine. Se GeoCLIP piazza il pin in Germania e l'OCR estrae la parola "Apotheke", hai una conferma solida sulla zona linguistica.
+* **Object Detection (YOLOv8):** Riconoscimento automatico di oggetti rilevanti per la geolocalizzazione (veicoli, segnaletica, elementi urbani) tramite Ultralytics YOLO.
+* **LLM Reasoning (Gemini):** Un arbitro basato su Google Gemini analizza l'output combinato (GeoCLIP + OCR + YOLO), esegue ricerche web e, solo in presenza di prove visive indipendenti, può effettuare un *override* della predizione statistica con una localizzazione motivata.
 
 ---
 
 ## 🔮 Roadmap & Future Implementazioni
 
-Le reti neurali visive da sole sono cieche se non c'è una logica a collegare i dati. Ecco cosa verrà integrato per chiudere la pipeline di intelligence:
+Possibili sviluppi futuri per chiudere ulteriormente la pipeline di intelligence:
 
-* **Object Detection (YOLOv8):** Riconoscimento di elementi chiave per la geolocalizzazione (es. semafori specifici, targhe, vegetazione endemica, segnaletica stradale).
-* **LLM Reasoning:** Integrazione API di un modello linguistico che analizzi l'output combinato (GeoCLIP + OCR + YOLO) e formuli una deduzione logica finale (es. *"L'IA dice Europa, l'OCR legge tedesco, YOLO rileva un tram giallo. -> Berlino, Germania"*).
 * **Reverse Image Search:** Script integrato per lanciare in automatico i ritagli dell'immagine su motori come Yandex o Google Lens.
 * **Cronolocalizzazione:** Calcolo grezzo di ora solare e orientamento incrociando l'angolazione delle ombre con la data EXIF.
+
+---
+
+## 🔑 Configurazione (.env)
+
+L'arbitro Gemini richiede una API key. Copia `.env.example` in `.env` e inserisci la tua chiave:
+
+```bash
+cp .env.example .env
+# poi modifica .env e imposta GEMINI_API_KEY
+```
+
+Senza chiave la dashboard funziona comunque, ma salta la fase di reasoning LLM/override.
 
 ---
 
@@ -69,7 +82,7 @@ pip install -r requirements.txt
 A `venv` attivo, lancia semplicemente lo script dalla radice del progetto:
 
 ```bash
-python geoclip_gui.py
+python app.py
 ```
 
 Il terminale avvierà il server locale (solitamente `http://127.0.0.1:7860`). Aprilo nel browser, carica l'immagine e avvia la pipeline.
