@@ -2,8 +2,11 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from tqdm import tqdm
-import os
-import wandb
+
+try:
+    import wandb
+except ImportError:  # wandb is optional: only used for logging
+    wandb = None
 
 def train(train_dataloader, model, optimizer, epoch, batch_size, device, pretrained_weights_dir=None, scheduler=None, criterion=nn.CrossEntropyLoss()):
 
@@ -55,7 +58,8 @@ def train(train_dataloader, model, optimizer, epoch, batch_size, device, pretrai
         optimizer.step()
 
         bar.set_description("Epoch {} loss: {:.5f}".format(epoch, loss.item()))
-        wandb.log({"epoch": epoch, "loss": loss.item()})
+        if wandb is not None and wandb.run is not None:
+            wandb.log({"epoch": epoch, "loss": loss.item()})
 
     if scheduler is not None:
         scheduler.step()
