@@ -1,4 +1,4 @@
+include README.md LICENSE .env.example
 recursive-include geoclip/model/gps_gallery *.csv
 recursive-include geoclip/model/weights *.pth
 recursive-include geoclip/images *.png
-recursive-include figures *.png
