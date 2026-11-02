@@ -124,7 +124,7 @@ def sun_position(when: datetime, lat: float, lon: float) -> SunPosition:
     return SunPosition(when=when, azimuth=round(azimuth, 3), elevation=round(elevation + _refraction(elevation), 3))
 
 
-def _day_samples(day: date, lat: float, lon: float, tz: tzinfo, step_min: int = 1) -> list[SunPosition]:
+def day_samples(day: date, lat: float, lon: float, tz: tzinfo, step_min: int = 1) -> list[SunPosition]:
     start = datetime(day.year, day.month, day.day, tzinfo=tz)
     return [sun_position(start + timedelta(minutes=i), lat, lon) for i in range(0, 24 * 60, step_min)]
 
@@ -139,15 +139,15 @@ def _crossing(samples: list[SunPosition], threshold: float, rising: bool) -> dat
 
 
 def sun_times(day: date, lat: float, lon: float, tz: tzinfo) -> dict[str, datetime | None]:
-    samples = _day_samples(day, lat, lon, tz)
+    samples = day_samples(day, lat, lon, tz)
     noon = max(samples, key=lambda s: s.elevation)
     return {
-        "alba": _crossing(samples, -0.833, rising=True),
-        "fine ora d'oro (mattina)": _crossing(samples, 6.0, rising=True),
-        "mezzogiorno solare": noon.when,
-        "inizio ora d'oro (sera)": _crossing(samples, 6.0, rising=False),
-        "tramonto": _crossing(samples, -0.833, rising=False),
-        "elevazione massima": noon.elevation,  # type: ignore[dict-item]
+        "sunrise": _crossing(samples, -0.833, rising=True),
+        "golden_morning_end": _crossing(samples, 6.0, rising=True),
+        "solar_noon": noon.when,
+        "golden_evening_start": _crossing(samples, 6.0, rising=False),
+        "sunset": _crossing(samples, -0.833, rising=False),
+        "max_elevation": noon.elevation,  # type: ignore[dict-item]
     }
 
 
@@ -174,7 +174,7 @@ def times_for_shadow(
     if object_height <= 0 or shadow_length <= 0:
         raise ValueError("Altezza e lunghezza dell'ombra devono essere > 0")
     target = math.degrees(math.atan(object_height / shadow_length))
-    samples = [s for s in _day_samples(day, lat, lon, tz) if s.elevation > 0]
+    samples = [s for s in day_samples(day, lat, lon, tz) if s.elevation > 0]
 
     def error(s: SunPosition) -> float:
         err = abs(s.elevation - target)
