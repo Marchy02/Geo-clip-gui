@@ -73,7 +73,8 @@ def _refraction(elevation: float) -> float:
     return r / 3600
 
 
-def sun_position(when: datetime, lat: float, lon: float) -> SunPosition:
+def sun_position(when: datetime, lat: float, lon: float, refraction: bool = True) -> SunPosition:
+    """Sun azimuth/elevation; ``refraction=False`` returns the geometric elevation."""
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
     utc = when.astimezone(timezone.utc)
@@ -121,32 +122,37 @@ def sun_position(when: datetime, lat: float, lon: float) -> SunPosition:
         acos_az = math.degrees(math.acos(cos_az))
         azimuth = (acos_az + 180) % 360 if hour_angle > 0 else (540 - acos_az) % 360
 
-    return SunPosition(when=when, azimuth=round(azimuth, 3), elevation=round(elevation + _refraction(elevation), 3))
+    return SunPosition(
+        when=when, azimuth=round(azimuth, 3), elevation=round(elevation + (_refraction(elevation) if refraction else 0.0), 3)
+    )
 
 
-def day_samples(day: date, lat: float, lon: float, tz: tzinfo, step_min: int = 1) -> list[SunPosition]:
+def day_samples(day: date, lat: float, lon: float, tz: tzinfo, step_min: int = 1, refraction: bool = True) -> list[SunPosition]:
     start = datetime(day.year, day.month, day.day, tzinfo=tz)
-    return [sun_position(start + timedelta(minutes=i), lat, lon) for i in range(0, 24 * 60, step_min)]
+    return [sun_position(start + timedelta(minutes=i), lat, lon, refraction) for i in range(0, 24 * 60, step_min)]
 
 
 def _crossing(samples: list[SunPosition], threshold: float, rising: bool) -> datetime | None:
+    """Instant the elevation crosses ``threshold`` (linear interpolation between samples)."""
     for a, b in zip(samples, samples[1:]):
-        if rising and a.elevation < threshold <= b.elevation:
-            return b.when
-        if not rising and a.elevation >= threshold > b.elevation:
-            return b.when
+        crossed = a.elevation < threshold <= b.elevation if rising else a.elevation >= threshold > b.elevation
+        if crossed:
+            frac = (threshold - a.elevation) / (b.elevation - a.elevation)
+            return a.when + (b.when - a.when) * frac
     return None
 
 
 def sun_times(day: date, lat: float, lon: float, tz: tzinfo) -> dict[str, datetime | None]:
     samples = day_samples(day, lat, lon, tz)
+    # -0.833° (standard sunrise/sunset) already includes refraction: use geometric elevation.
+    geometric = day_samples(day, lat, lon, tz, refraction=False)
     noon = max(samples, key=lambda s: s.elevation)
     return {
-        "sunrise": _crossing(samples, -0.833, rising=True),
+        "sunrise": _crossing(geometric, -0.833, rising=True),
         "golden_morning_end": _crossing(samples, 6.0, rising=True),
         "solar_noon": noon.when,
         "golden_evening_start": _crossing(samples, 6.0, rising=False),
-        "sunset": _crossing(samples, -0.833, rising=False),
+        "sunset": _crossing(geometric, -0.833, rising=False),
         "max_elevation": noon.elevation,  # type: ignore[dict-item]
     }
 

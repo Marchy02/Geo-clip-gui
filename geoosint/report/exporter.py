@@ -36,6 +36,13 @@ def _img_b64(img: Image.Image | str | None, max_side: int = 1200) -> str | None:
         return None
 
 
+def _safe_json(markers: list[dict]) -> str:
+    """JSON for an inline <script>: labels are HTML-escaped (Leaflet tooltips render HTML)
+    and '</' is neutralised so the payload cannot close the script tag."""
+    clean = [{**m, "label": html.escape(str(m.get("label", "")))} for m in markers]
+    return json.dumps(clean, ensure_ascii=False).replace("</", "<\\/")
+
+
 def to_json(report: AnalysisReport) -> str:
     return json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
 
@@ -308,7 +315,7 @@ def to_html(report: AnalysisReport) -> str:
         map_js = (
             '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">'
             '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>'
-            f"const M={json.dumps(markers)};"
+            f"const M={_safe_json(markers)};"
             "const map=L.map('map');L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);"
             "const g=L.featureGroup(M.map(m=>L.circleMarker([m.lat,m.lon],{radius:8,color:m.color,fillOpacity:.8}).bindTooltip(m.label))).addTo(map);"
             "map.fitBounds(g.getBounds().pad(0.3),{maxZoom:14});</script>"
