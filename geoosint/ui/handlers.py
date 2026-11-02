@@ -48,9 +48,10 @@ def header_html() -> str:
     s = get_settings()
     chips = []
     for st in statuses():
-        chips.append((st.name, "ok" if st.loaded else ("" if st.installed else "bad")))
+        # ok = loaded, idle = installed (loads on first use), bad = missing
+        chips.append((st.name, "ok" if st.loaded else ("idle" if st.installed else "bad")))
     chips.append(("Gemini", "ok" if s.gemini_api_key and modules_available("google.genai")[0] else "warn"))
-    chips.append(("Online" if s.online_lookups else "Offline", "ok" if s.online_lookups else "warn"))
+    chips.append(("Rete" if s.online_lookups else "Offline", "ok" if s.online_lookups else "warn"))
     return ui.header(__version__, chips)
 
 
@@ -101,7 +102,7 @@ def run_analysis(
 ):
     """Return the tuple of outputs wired in ``app.py`` (see ``ANALYSIS_OUTPUTS``)."""
     if not image_path:
-        return blank_outputs("Carica un'immagine (trascinala, incollala o scaricala da URL) e premi Analizza.")
+        return blank_outputs()
 
     enabled = {MODULES[m] for m in modules if m in MODULES}
     langs, lang_note = normalize_ocr_languages(ocr_labels)
@@ -130,7 +131,7 @@ def run_analysis(
         report = Pipeline().run(image_path, opts, progress=cb)
     except Exception as exc:
         log.exception("Analisi fallita")
-        return blank_outputs(f"Analisi impossibile: {exc}", error=True)
+        return blank_outputs(str(exc), error=True)
 
     if lang_note:
         report.steps.append(StepStatus(name="Lingue OCR", status="ok", detail=lang_note))
@@ -144,11 +145,11 @@ def run_analysis(
 
     final = report.final
     if final:
-        geo_html = ui.formats_card(final.point.lat, final.point.lon) + (
-            f'<div class="card"><h3>🔗 Verifica sul posto</h3>{ui.links_html(map_links(final.point.lat, final.point.lon))}</div>'
+        geo_html = ui.formats_card(final.point.lat, final.point.lon) + ui.section(
+            "Verifica sul posto", ui.links_html(map_links(final.point.lat, final.point.lon)), "Apri il punto del verdetto in"
         )
     else:
-        geo_html = ui.empty("Nessuna coordinata da convertire.", "📐")
+        geo_html = ui.empty("Senza un punto non ci sono coordinate da convertire.", "Nessuna coordinata")
 
     geo_rows = [
         [i + 1, round(g.lat, 5), round(g.lon, 5), f"{(g.prob or 0) * 100:.2f}%", g.address or ""] for i, g in enumerate(report.geoclip)
@@ -160,21 +161,17 @@ def run_analysis(
     from ..engines.yolo_engine import GEO_RELEVANT, summarize
 
     reverse = ui.links_html(reverse_image_links(image_url.strip() or None)) + ui.links_html(VERIFICATION_TOOLS)
-    reverse_html = (
-        '<div class="card"><h3>🔁 Ricerca inversa e verifica</h3>'
-        + (
-            ""
-            if image_url.strip()
-            else '<p class="muted">Immagine locale: apri un motore e carica il file. Con un URL pubblico i link cercano direttamente.</p>'
-        )
-        + reverse
-        + "</div>"
+    intro = (
+        "I link cercano direttamente l'immagine dall'URL che hai indicato."
+        if image_url.strip()
+        else "L'immagine è sul tuo computer: apri un motore e carica il file. Se indichi un URL pubblico, i link cercano direttamente."
     )
+    reverse_html = ui.section("Ricerca inversa e verifica", f'<p class="muted">{ui._e(intro)}</p>{reverse}', "Trova la copia più vecchia")
 
     fz = report.forensics
     return (
         ui.verdict_card(report),
-        render_map(_markers(report)),
+        map_with_legend(_markers(report)),
         geo_rows,
         geo_html,
         ui.ai_card(report.ai),
@@ -193,21 +190,31 @@ def run_analysis(
     )
 
 
-def blank_outputs(message: str, error: bool = False):
-    card = ui.error_card(message) if error else ui.empty(message)
-    return (card, empty_map(), [], "", "", "", [], None, None, "", "", None, "", "", None, "", None)
+def map_with_legend(markers: list[Marker], height: int = 460) -> str:
+    kinds = {m.kind for m in markers}
+    return ui.map_legend(kinds) + (render_map(markers, height=height) if markers else empty_map(height))
+
+
+def blank_outputs(message: str = "", error: bool = False):
+    if error:
+        card = ui.error_card(message, "Analisi non riuscita")
+    elif message:
+        card = ui.empty(message)
+    else:
+        card = ui.verdict_placeholder()
+    return (card, map_with_legend([]), [], "", "", "", [], None, None, "", "", None, "", "", None, "", None)
 
 
 def fetch_url(url: str):
     from ..fetch import FetchError, download_image
 
     if not (url or "").strip():
-        return None, ui.error_card("Inserisci l'URL di un'immagine.")
+        return None, ui.error_card("Incolla l'indirizzo completo di un'immagine, che inizi con https://.", "URL mancante")
     try:
         path = download_image(url)
     except FetchError as exc:
-        return None, ui.error_card(str(exc))
-    return str(path), f'<div class="card"><div class="finding good">✅ Scaricata: {ui._e(path.name)}</div></div>'
+        return None, ui.error_card(str(exc), "Download non riuscito")
+    return str(path), ui.notice(f"Immagine scaricata: {path.name}. Ora premi Analizza immagine.", "ok")
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +226,7 @@ def coordinate_tool(text: str, do_reverse: bool):
     try:
         point = parse_coordinates(text)
     except CoordinateError as exc:
-        return ui.error_card(str(exc)), empty_map(380), ""
+        return ui.error_card(str(exc), "Coordinate non riconosciute"), map_with_legend([], 380), ""
     info_html = ""
     if do_reverse and get_settings().online_lookups:
         try:
@@ -229,23 +236,24 @@ def coordinate_tool(text: str, do_reverse: bool):
                  ("Regione", info.get("state")), ("Città", info.get("city")), ("CAP", info.get("postcode"))]
             )  # fmt: skip
         except geocode.GeocodingError as exc:
-            info_html = f'<div class="finding warn">{ui._e(exc)}</div>'
+            info_html = ui.notice(str(exc), "warn")
     formats = ui.kv_table(all_formats(point.lat, point.lon).items(), mono=True)
-    card = f'<div class="card"><h3>📍 {point.lat:.6f}, {point.lon:.6f}</h3>{formats}{info_html}</div>'
-    links = f'<div class="card"><h3>🔗 Apri in…</h3>{ui.links_html(map_links(point.lat, point.lon))}</div>'
-    return card, render_map([Marker(point.lat, point.lon, str(point), "final")], zoom=16, height=380), links
+    card = ui.section(f"{point.lat:.6f}, {point.lon:.6f}", formats + info_html, "Punto")
+    links = ui.section("Apri il punto in", ui.links_html(map_links(point.lat, point.lon)))
+    marker = Marker(point.lat, point.lon, str(point), "final")
+    return card, ui.map_legend({"final"}) + render_map([marker], zoom=16, height=380), links
 
 
 def place_search(query: str):
     if not (query or "").strip():
-        return [], ui.empty("Scrivi un luogo, un indirizzo o un nome di attività.", "🔎")
+        return [], ui.empty("Scrivi un indirizzo, un monumento o il nome di un'attività.", "Cerca un luogo")
     try:
         results = geocode.search(query.strip(), limit=8)
     except geocode.GeocodingError as exc:
-        return [], ui.error_card(str(exc))
+        return [], ui.error_card(str(exc), "Ricerca non disponibile")
     rows = [[r["name"], round(r["lat"], 6), round(r["lon"], 6), r["type"]] for r in results]
     if not rows:
-        return [], ui.empty("Nessun risultato.", "🔎")
+        return [], ui.empty("OpenStreetMap non ha trovato nulla: prova con meno parole o aggiungi la città.", "Nessun risultato")
     return rows, render_map([Marker(r["lat"], r["lon"], r["name"], "other") for r in results], height=380)
 
 
@@ -253,11 +261,11 @@ def distance_tool(a: str, b: str):
     try:
         p1, p2 = parse_coordinates(a), parse_coordinates(b)
     except CoordinateError as exc:
-        return ui.error_card(str(exc))
+        return ui.error_card(str(exc), "Coordinate non riconosciute")
     d = haversine_km(p1.lat, p1.lon, p2.lat, p2.lon)
     brg = initial_bearing(p1.lat, p1.lon, p2.lat, p2.lon)
     rows = [("Distanza (ortodromica)", f"{d:,.3f} km".replace(",", " ")), ("Azimut iniziale A→B", f"{brg:.1f}° ({compass_point(brg)})")]
-    return f'<div class="card"><h3>📏 Distanza e direzione</h3>{ui.kv_table(rows)}</div>'
+    return ui.section("Distanza e direzione", ui.kv_table(rows))
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +290,7 @@ def sun_tool(coords: str, day, time_str: str, tz_name: str):
         d = _parse_day(day)
         hh, mm = (int(x) for x in (time_str or "12:00").strip().split(":")[:2])
     except (CoordinateError, ValueError) as exc:
-        return ui.error_card(str(exc)), ""
+        return ui.error_card(str(exc), "Dati non validi"), ""
     when = datetime(d.year, d.month, d.day, hh, mm, tzinfo=tz)
     pos = sun_position(when, point.lat, point.lon)
     times = sun_times(d, point.lat, point.lon, tz)
@@ -299,11 +307,12 @@ def sun_tool(coords: str, day, time_str: str, tz_name: str):
         ("Elevazione massima", f"{times['max_elevation']:.1f}°"),
     ]
     svg = ui.sun_path_svg(day_samples(d, point.lat, point.lon, tz, step_min=10), pos)
-    card = f'<div class="card"><h3>☀️ {when:%d/%m/%Y %H:%M} · {ui._e(tz_name or "UTC")}</h3>{ui.kv_table(rows)}</div>'
-    return (
-        card,
-        f'<div class="card" style="text-align:center"><h3>Percorso del sole</h3>{svg}<p class="muted">Pallino giallo: sole · tratteggio: direzione dell\'ombra</p></div>',
+    card = ui.section(f"{when:%d/%m/%Y %H:%M}", ui.kv_table(rows), f"Sole · {tz_name or 'UTC'}")
+    figure = (
+        f'<figure class="sun-figure">{svg}<figcaption>Percorso del sole dall\'alba al tramonto, con le ore. '
+        "Cerchio: posizione all'ora scelta. Tratteggio: direzione delle ombre.</figcaption></figure>"
     )
+    return card, figure
 
 
 def shadow_tool(coords: str, day, tz_name: str, height: float, length: float, shadow_az: float | None):
@@ -314,20 +323,23 @@ def shadow_tool(coords: str, day, tz_name: str, height: float, length: float, sh
         az = float(shadow_az) if shadow_az not in (None, "", 0) else None
         matches = times_for_shadow(d, point.lat, point.lon, tz, float(height or 0), float(length or 0), az)
     except (CoordinateError, ValueError, TypeError) as exc:
-        return ui.error_card(str(exc))
+        return ui.error_card(str(exc), "Dati non validi")
     if not matches:
-        return ui.empty("Nessun orario compatibile in quella data: verifica le misure o prova date vicine.", "🌗")
-    rows = "".join(
-        f"<tr><td><b>{m.when:%H:%M}</b></td><td>{m.elevation:.1f}°</td><td>{m.azimuth:.0f}° {compass_point(m.azimuth)}</td>"
-        f"<td>{m.shadow_azimuth:.0f}° {compass_point(m.shadow_azimuth)}</td><td>±{m.error_deg:.2f}°</td></tr>"
+        return ui.empty(
+            "In quella data il sole non raggiunge l'altezza che queste misure richiedono. Controlla altezza e ombra, o prova date vicine.",
+            "Nessun orario compatibile",
+        )
+    rows = [
+        [f"{m.when:%H:%M}", f"{m.elevation:.1f}°", f"{m.azimuth:.0f}° {compass_point(m.azimuth)}",
+         f"{m.shadow_azimuth:.0f}° {compass_point(m.shadow_azimuth)}", f"±{m.error_deg:.2f}°"]
         for m in matches
+    ]  # fmt: skip
+    note = (
+        "<p class='muted'>Senza la direzione dell'ombra di solito ci sono due soluzioni, mattino e pomeriggio. "
+        "Misura la direzione sul satellite per scegliere quella giusta.</p>"
     )
-    return (
-        '<div class="card"><h3>🕰️ Orari compatibili con l\'ombra</h3><table class="kv wide"><tr><th>Ora</th><th>Elev.</th><th>Sole</th>'
-        f"<th>Ombra</th><th>Errore</th></tr>{rows}</table>"
-        '<p class="muted">Senza direzione dell\'ombra ci sono di solito due soluzioni (mattino e pomeriggio): misura su mappa '
-        "la direzione dell'ombra per scegliere quella giusta.</p></div>"
-    )
+    table = ui.grid_table(["Ora", "Elevazione", "Sole", "Ombra verso", "Scarto"], rows, mono_cols=(0,))
+    return ui.section("Orari compatibili con l'ombra", table + note)
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +351,7 @@ def privacy_tool(image_path: str | None):
     from ..forensics import extract_metadata, strip_metadata
 
     if not image_path:
-        return ui.empty("Carica un'immagine per vedere cosa rivela e ottenerne una copia pulita.", "🧹"), None
+        return ui.empty("Carica una foto: vedrai cosa rivela e potrai scaricarne una copia senza metadati.", "Nessuna immagine"), None
     meta = extract_metadata(image_path)
     src = Path(image_path)
     out_dir = Path(tempfile.mkdtemp(prefix="geoosint_clean_"))
@@ -347,32 +359,28 @@ def privacy_tool(image_path: str | None):
         src, out_dir / f"{src.stem}_pulita{src.suffix if src.suffix.lower() in {'.jpg', '.jpeg', '.png', '.webp'} else '.png'}"
     )
     after = extract_metadata(clean)
-    summary = (
-        '<div class="card"><h3>🧹 Prima → dopo</h3>'
-        + ui.kv_table([
-            ("Tag EXIF", f"{len(meta.exif)} → {len(after.exif)}"),
-            ("XMP", f"{len(meta.xmp)} → {len(after.xmp)}"),
-            ("GPS", f"{'presente' if meta.gps else 'assente'} → {'presente' if after.gps else 'assente'}"),
-            ("Fotocamera", f"{meta.camera or '—'} → {after.camera or '—'}"),
-        ])
-        + "</div>"
-    )  # fmt: skip
-    return ui.metadata_card(meta) + summary, str(clean)
+    summary = ui.section("Copia pulita pronta", ui.kv_table([
+        ("Tag EXIF", f"{len(meta.exif)} → {len(after.exif)}"),
+        ("XMP", f"{len(meta.xmp)} → {len(after.xmp)}"),
+        ("GPS", f"{'presente' if meta.gps else 'assente'} → {'presente' if after.gps else 'assente'}"),
+        ("Fotocamera", f"{meta.camera or '—'} → {after.camera or '—'}"),
+    ]), "Prima → dopo")  # fmt: skip
+    return summary + ui.metadata_card(meta), str(clean)
 
 
 def compare_tool(a: str | None, b: str | None):
     from ..forensics import compute_hashes, extract_metadata, hamming
 
     if not a or not b:
-        return ui.empty("Carica due immagini da confrontare.", "🧩")
+        return ui.empty("Carica entrambe le immagini, A e B, poi premi Confronta immagini.", "Servono due immagini")
     ha, hb = compute_hashes(a), compute_hashes(b)
     if ha.sha256 == hb.sha256:
-        verdict = ("good", "File identici bit a bit (stesso SHA-256).")
+        verdict = ("ok", "File identici bit a bit (stesso SHA-256).")
     else:
         dist = min(hamming(ha.phash, hb.phash), hamming(ha.dhash, hb.dhash))
         if dist <= 6:
             verdict = (
-                "good",
+                "ok",
                 f"Quasi certamente la stessa immagine (distanza percettiva {dist}/64): ricompressa, ridimensionata o ritagliata leggermente.",
             )
         elif dist <= 14:
@@ -380,8 +388,8 @@ def compare_tool(a: str | None, b: str | None):
         else:
             verdict = ("bad", f"Immagini diverse (distanza {dist}/64).")
     ma, mb = extract_metadata(a), extract_metadata(b)
-    rows = "".join(
-        f"<tr><th>{ui._e(label)}</th><td>{ui._e(x)}</td><td>{ui._e(y)}</td></tr>"
+    rows = [
+        [label, x, y]
         for label, x, y in [
             ("Dimensioni", f"{ma.width}×{ma.height}", f"{mb.width}×{mb.height}"),
             ("Formato", ma.format, mb.format),
@@ -394,22 +402,21 @@ def compare_tool(a: str | None, b: str | None):
             ("pHash", ha.phash, hb.phash),
             ("SHA-256", ha.sha256[:16] + "…", hb.sha256[:16] + "…"),
         ]
-    )
+    ]
     hint = ""
     if ma.file_size and mb.file_size and verdict[0] != "bad":
         older = "A" if (ma.exif and not mb.exif) or ma.width * ma.height > mb.width * mb.height else "B"
         hint = (
             f'<p class="muted">Indizio di provenienza: la versione {older} ha più metadati/risoluzione ed è più vicina all\'originale.</p>'
         )
-    return (
-        f'<div class="card"><h3>🧩 Confronto</h3><div class="finding {verdict[0]}">{ui._e(verdict[1])}</div>'
-        f'<table class="kv wide" style="margin-top:10px"><tr><th></th><th>A</th><th>B</th></tr>{rows}</table>{hint}</div>'
+    return ui.section("Esito del confronto", ui.notice(verdict[1], verdict[0])) + ui.section(
+        "Metadati a confronto", ui.grid_table(["", "A", "B"], rows) + hint
     )
 
 
 def batch_tool(files: list | None, modules: list[str], preset: str, progress=None):
     if not files:
-        return [], empty_map(), None
+        return [], map_with_legend([], 400), None
     enabled = {MODULES[m] for m in modules if m in MODULES}
     opts = AnalysisOptions(
         metadata="metadata" in enabled,
@@ -461,7 +468,7 @@ def batch_tool(files: list | None, modules: list[str], preset: str, progress=Non
         writer.writerows(rows)
     json_path = out_dir / "risultati.json"
     json_path.write_text(json.dumps(dump, ensure_ascii=False, indent=2), encoding="utf-8")
-    return rows, render_map(markers) if markers else empty_map(), [str(csv_path), str(json_path)]
+    return rows, map_with_legend(markers, 400), [str(csv_path), str(json_path)]
 
 
 BATCH_HEADERS = ["File", "Lat", "Lon", "Fonte", "Affidabilità", "Fotocamera", "Data scatto", "SHA-256"]
@@ -469,26 +476,29 @@ BATCH_HEADERS = ["File", "Lat", "Lon", "Fonte", "Affidabilità", "Fotocamera", "
 
 def status_html() -> str:
     s = get_settings()
-    engine_rows = "".join(
-        f"<tr><th>{ui._e(st.name)}</th><td>{'🟢 caricato' if st.loaded else ('⚪ pronto (caricamento al primo uso)' if st.installed else '🔴 ' + ui._e(st.detail))}</td></tr>"
-        for st in statuses()
-    )
+    rows = []
+    for st in statuses():
+        state = "pronto, si carica al primo uso" if st.installed else st.detail
+        rows.append((st.name, "caricato" if st.loaded else state))
     gemini_ok, gemini_detail = modules_available("google.genai")
-    engine_rows += f"<tr><th>Gemini</th><td>{'🟢 chiave configurata' if s.gemini_api_key else '🟡 chiave assente (inseriscila nelle opzioni o in .env)'}{'' if gemini_ok else ' · 🔴 ' + ui._e(gemini_detail)}</td></tr>"
+    if not gemini_ok:
+        rows.append(("Gemini", gemini_detail))
+    else:
+        rows.append(("Gemini", "chiave configurata" if s.gemini_api_key else "chiave assente: aggiungila nelle opzioni o nel file .env"))
     settings_rows = ui.kv_table(
         [
             ("Modello Gemini", s.gemini_model),
-            ("Ricerca Google (grounding)", "attiva" if s.gemini_search else "disattiva"),
-            ("Preset GeoCLIP", s.geoclip_preset),
+            ("Verifica con Google Search", "attiva" if s.gemini_search else "disattiva"),
+            ("Modello GeoCLIP", s.geoclip_preset),
             ("Lingue OCR", ", ".join(s.ocr_languages)),
             ("Modello YOLO", s.yolo_model),
             ("Ricerche online", "attive" if s.online_lookups else "disattivate"),
-            ("Cartella report", str(s.reports_dir)),
-            ("Limite immagine", f"{s.max_image_mb} MB"),
+            ("Cartella dei report", str(s.reports_dir)),
+            ("Dimensione massima immagine", f"{s.max_image_mb} MB"),
         ]
     )
-    return (
-        f'<div class="card"><h3>⚙️ Motori</h3><table class="kv">{engine_rows}</table></div>'
-        f'<div class="card"><h3>🔧 Configurazione attiva</h3>{settings_rows}'
-        '<p class="muted">Modifica tramite variabili d\'ambiente o file <code>.env</code> (vedi <code>.env.example</code>).</p></div>'
+    return ui.section("Motori", ui.kv_table(rows), "Stato") + ui.section(
+        "Configurazione attiva",
+        settings_rows
+        + "<p class='muted'>Si cambia con le variabili d'ambiente o il file <code>.env</code> (modello in <code>.env.example</code>).</p>",
     )
