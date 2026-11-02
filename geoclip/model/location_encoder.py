@@ -1,7 +1,10 @@
+import os
+
 import torch
 import torch.nn as nn
-from .rff import GaussianEncoding
+
 from .misc import file_dir
+from .rff import GaussianEncoding
 
 # Constants
 A1 = 1.340264
@@ -9,6 +12,7 @@ A2 = -0.081106
 A3 = 0.000893
 A4 = 0.003796
 SF = 66.50336
+
 
 def equal_earth_projection(L):
     latitude = L[:, 0]
@@ -22,18 +26,15 @@ def equal_earth_projection(L):
     y = A4 * theta**9 + A3 * theta**7 + A2 * theta**3 + A1 * theta
     return (torch.stack((x, y), dim=1) * SF) / 180
 
+
 class LocationEncoderCapsule(nn.Module):
     def __init__(self, sigma):
-        super(LocationEncoderCapsule, self).__init__()
+        super().__init__()
         rff_encoding = GaussianEncoding(sigma=sigma, input_size=2, encoded_size=256)
         self.km = sigma
-        self.capsule = nn.Sequential(rff_encoding,
-                                     nn.Linear(512, 1024),
-                                     nn.ReLU(),
-                                     nn.Linear(1024, 1024),
-                                     nn.ReLU(),
-                                     nn.Linear(1024, 1024),
-                                     nn.ReLU())
+        self.capsule = nn.Sequential(
+            rff_encoding, nn.Linear(512, 1024), nn.ReLU(), nn.Linear(1024, 1024), nn.ReLU(), nn.Linear(1024, 1024), nn.ReLU()
+        )
         self.head = nn.Sequential(nn.Linear(1024, 512))
 
     def forward(self, x):
@@ -41,31 +42,32 @@ class LocationEncoderCapsule(nn.Module):
         x = self.head(x)
         return x
 
+
 class LocationEncoder(nn.Module):
-    def __init__(self, sigma=[2**0, 2**4, 2**8], from_pretrained=True):
-        super(LocationEncoder, self).__init__()
-        self.sigma = sigma
+    def __init__(self, sigma=(2**0, 2**4, 2**8), from_pretrained=True, weights_file="location_encoder_weights.pth"):
+        super().__init__()
+        self.sigma = list(sigma)
         self.n = len(self.sigma)
 
         for i, s in enumerate(self.sigma):
-            self.add_module('LocEnc' + str(i), LocationEncoderCapsule(sigma=s))
+            self.add_module("LocEnc" + str(i), LocationEncoderCapsule(sigma=s))
 
         if from_pretrained:
-            self._load_weights(fine_tuned=True)
+            self._load_weights(weights_file)
 
-    def _load_weights(self, fine_tuned=True):
-        if fine_tuned:
-            location_encoder_path = "fine_tuned_location_encoder_weights_08-29-02:48.pth"
-        else:
-            location_encoder_path = "location_encoder_weights.pth"
-
-        self.load_state_dict(torch.load(f"{file_dir}/weights/{location_encoder_path}"))
+    def _load_weights(self, weights_file="location_encoder_weights.pth"):
+        path = os.path.join(file_dir, "weights", weights_file)
+        try:
+            state = torch.load(path, map_location="cpu", weights_only=True)
+        except TypeError:  # torch < 1.13
+            state = torch.load(path, map_location="cpu")
+        self.load_state_dict(state)
 
     def forward(self, location):
         location = equal_earth_projection(location)
         location_features = torch.zeros(location.shape[0], 512).to(location.device)
 
         for i in range(self.n):
-            location_features += self._modules['LocEnc' + str(i)](location)
-        
+            location_features += self._modules["LocEnc" + str(i)](location)
+
         return location_features
