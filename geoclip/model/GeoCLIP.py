@@ -56,7 +56,7 @@ PRESETS: dict[str, Preset] = {
     ),
     "ukraine_russia": Preset(
         gallery="coordinates_ukraine_russia.csv",
-        timestamp="09-20-09:11",
+        timestamp="09-20-09-11",
         description="Modello fine-tuned su Ucraina/Russia, galleria regionale",
     ),
 }
@@ -102,7 +102,7 @@ class GeoCLIP(nn.Module):
     ):
         """
         Args:
-            timestamp: suffix of a fine-tuned weight set (e.g. ``"09-20-09:11"``).
+            timestamp: suffix of a fine-tuned weight set (e.g. ``"09-20-09-11"``; ``":"`` is accepted too).
                 Overrides the preset's weights.
             epoch_num / epochs: load a training snapshot from ``geoclip/snapshots``.
             from_pretrained: load weights (disable for training from scratch).
@@ -146,16 +146,20 @@ class GeoCLIP(nn.Module):
         if not self.timestamp:
             return ("image_encoder_mlp_weights.pth", "location_encoder_weights.pth", "logit_scale_weights.pth")
         prefix = "" if epochs else "fine_tuned_"
+        # File names use "-" instead of ":" (invalid on Windows); accept both spellings.
+        ts = self.timestamp.replace(":", "-")
         return (
-            f"{prefix}image_encoder_mlp_weights_{self.timestamp}.pth",
-            f"{prefix}location_encoder_weights_{self.timestamp}.pth",
-            f"{prefix}logit_scale_weights_{self.timestamp}.pth",
+            f"{prefix}image_encoder_mlp_weights_{ts}.pth",
+            f"{prefix}location_encoder_weights_{ts}.pth",
+            f"{prefix}logit_scale_weights_{ts}.pth",
         )
 
     def _load_weights(self, epoch_num: int = 0, epochs: bool = False):
         folder = SNAPSHOTS_DIR / f"epoch_{epoch_num}" if epochs else WEIGHTS_DIR
-        img_name, loc_name, scale_name = self._weight_names(epochs)
-        paths = [folder / img_name, folder / loc_name, folder / scale_name]
+        paths = [folder / name for name in self._weight_names(epochs)]
+        if not all(p.exists() for p in paths) and self.timestamp and ":" in self.timestamp:
+            # Legacy snapshots saved with ":" in the name (Linux only).
+            paths = [p.with_name(p.name.replace(self.timestamp.replace(":", "-"), self.timestamp)) for p in paths]
         missing = [str(p) for p in paths if not p.exists()]
         if missing:
             raise FileNotFoundError("Pesi GeoCLIP mancanti:\n  " + "\n  ".join(missing))
