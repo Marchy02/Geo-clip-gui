@@ -8,7 +8,8 @@ from dataclasses import dataclass
 import folium
 from folium import plugins
 
-COLORS = {"final": "#ef4444", "exif": "#22c55e", "ai": "#f59e0b", "geoclip": "#06b6d4", "other": "#a78bfa"}
+# Same hues as the legend tokens, brightened to stay visible on satellite imagery.
+COLORS = {"final": "#e0408f", "exif": "#3fbf7a", "ai": "#e09a4f", "geoclip": "#4aa8e0", "other": "#b39ddb"}
 
 
 @dataclass
@@ -23,26 +24,29 @@ class Marker:
 
 def _base_map(center: tuple[float, float], zoom: int) -> folium.Map:
     m = folium.Map(location=center, zoom_start=zoom, tiles=None, control_scale=True, prefer_canvas=True)
+    # The first layer is the default: satellite imagery is what you compare a photo against.
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Imagery",
+        name="Satellite",
+        max_zoom=19,
+    ).add_to(m)
+    folium.TileLayer("OpenStreetMap", name="Stradale").add_to(m)
+    folium.TileLayer(
+        tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        attr="© OpenTopoMap (CC-BY-SA)",
+        name="Topografica",
+        max_zoom=17,
+    ).add_to(m)
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
         attr="Esri, HERE, Garmin, © OpenStreetMap contributors",
         name="Scuro",
         max_zoom=16,
     ).add_to(m)
-    folium.TileLayer("OpenStreetMap", name="Stradale").add_to(m)
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Imagery",
-        name="Satellite",
-    ).add_to(m)
-    folium.TileLayer(
-        tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-        attr="© OpenTopoMap (CC-BY-SA)",
-        name="Topografica",
-    ).add_to(m)
     plugins.Fullscreen(position="topleft").add_to(m)
     plugins.MeasureControl(position="topleft", primary_length_unit="kilometers").add_to(m)
-    plugins.MousePosition(position="bottomleft", separator=", ", num_digits=6, prefix="Cursore:").add_to(m)
+    plugins.MousePosition(position="bottomleft", separator=", ", num_digits=6, prefix="Cursore").add_to(m)
     return m
 
 
@@ -51,8 +55,8 @@ def render_map(markers: list[Marker], zoom: int | None = None, height: int = 460
         return empty_map(height)
     m = _base_map((markers[0].lat, markers[0].lon), zoom or 5)
     groups: dict[str, folium.FeatureGroup] = {}
-    names = {"final": "Verdetto", "exif": "GPS EXIF", "ai": "Arbitro IA", "geoclip": "GeoCLIP", "other": "Punti"}
-    for mk in markers:
+    names = {"final": "Verdetto", "exif": "GPS EXIF", "ai": "Ipotesi IA", "geoclip": "Candidati GeoCLIP", "other": "Punti"}
+    for mk in sorted(markers, key=lambda m: m.kind == "final"):  # verdict drawn last, on top
         group = groups.get(mk.kind)
         if group is None:
             group = groups[mk.kind] = folium.FeatureGroup(name=names.get(mk.kind, mk.kind)).add_to(m)
@@ -65,19 +69,29 @@ def render_map(markers: list[Marker], zoom: int | None = None, height: int = 460
             max_width=280,
         )
         if mk.kind == "final":
-            folium.Marker(
-                [mk.lat, mk.lon], tooltip=tooltip, popup=popup, icon=folium.Icon(color="red", icon="crosshairs", prefix="fa")
+            # Crosshair: outer ring + solid core, drawn above everything else.
+            folium.CircleMarker([mk.lat, mk.lon], radius=14, color=color, weight=3, fill=False).add_to(group)
+            folium.CircleMarker(
+                [mk.lat, mk.lon],
+                radius=6,
+                color="#ffffff",
+                weight=2,
+                fill=True,
+                fill_color=color,
+                fill_opacity=1,
+                tooltip=tooltip,
+                popup=popup,
             ).add_to(group)
         else:
-            radius = 6 + 14 * min(1.0, (mk.weight or 0) * 3) if mk.weight is not None else 8
+            radius = 5 + 12 * min(1.0, (mk.weight or 0) * 3) if mk.weight is not None else 8
             folium.CircleMarker(
                 [mk.lat, mk.lon],
                 radius=radius,
-                color=color,
+                color="#ffffff",
                 fill=True,
                 fill_color=color,
-                fill_opacity=0.65,
-                weight=2,
+                fill_opacity=0.85,
+                weight=1.5,
                 tooltip=tooltip,
                 popup=popup,
             ).add_to(group)

@@ -10,7 +10,9 @@ Tutto da una dashboard web o da riga di comando, con report esportabili.
 
 > Fork operativo del progetto accademico [GeoCLIP](https://github.com/VicenteVivan/geo-clip) (NeurIPS 2023).
 
-![Scheda Sole & ombre](docs/screenshot-sole.png)
+![Verdetto di un'analisi: fonte, affidabilità e moduli eseguiti](docs/screenshot-analisi.png)
+
+![Scheda Sole e ombre in tema scuro](docs/screenshot-sole.png)
 
 ---
 
@@ -145,7 +147,7 @@ tramite un *location encoder* a Random Fourier Features: restituisce una distrib
 1. **Analizza** l'immagine e leggi il verdetto *e la sua motivazione*.
 2. **Verifica sul posto**: apri Street View / Mapillary / satellite dai link e confronta edifici, cartelli, pali, vegetazione, orizzonte.
 3. **Pivota**: cerca i testi letti dall'OCR; lancia la ricerca inversa per trovare la copia più vecchia (spesso con contesto originale).
-4. **Cronolocalizza** con la scheda *Sole & ombre*.
+4. **Cronolocalizza** con la scheda *Sole e ombre*.
 5. **Documenta**: scarica il report — l'hash SHA-256 identifica univocamente il file analizzato.
 
 ---
