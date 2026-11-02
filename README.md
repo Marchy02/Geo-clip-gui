@@ -1,86 +1,215 @@
-# 🌍 GeoCLIP - OSINT Dashboard & Worldwide Geo-localization
+# 🛰️ GeoOSINT — coltellino svizzero OSINT per immagini
 
-![GeoCLIP Method](figures/method.png)
+[![CI](https://github.com/Marchy02/Geo-clip-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/Marchy02/Geo-clip-gui/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-Questo repository è un fork operativo del progetto accademico originale [GeoCLIP](https://github.com/VicenteVivan/geo-clip). Il motore neurale di base è stato mantenuto intatto, ma è stato incapsulato in una **Dashboard OSINT** progettata per indagini reali. 
+Da una foto a una posizione **verificabile**: GeoCLIP stima dove è stata scattata, un arbitro IA (Gemini)
+incrocia testi, oggetti e metadati, e gli strumenti forensi e di pivot ti aiutano a **confermare o smentire**.
+Tutto da una dashboard web o da riga di comando, con report esportabili.
 
-L'obiettivo è smettere di guardare solo le percentuali statistiche dell'IA da un terminale e iniziare a incrociarle con testi, loghi e metadati estratti dall'immagine per ottenere conferme visive e contestuali.
+> Fork operativo del progetto accademico [GeoCLIP](https://github.com/VicenteVivan/geo-clip) (NeurIPS 2023).
 
----
-
-## 🧠 Il Motore Originale (Come funziona GeoCLIP)
-
-*Dalla documentazione originale dell'autore:*
-GeoCLIP affronta la sfida della geolocalizzazione globale delle immagini introducendo un approccio ispirato a CLIP che allinea immagini e posizioni geografiche. Il *location encoder* modella la Terra come una funzione continua, apprendendo feature semanticamente ricche e adatte alla geolocalizzazione.
-
-Simile al modello CLIP di OpenAI, GeoCLIP è addestrato in modo contrastivo abbinando coppie Immagine-GPS. Utilizzando il dataset MP-16, composto da 4.7 milioni di immagini scattate in tutto il mondo, GeoCLIP apprende le caratteristiche visive distintive associate ai diversi luoghi del pianeta.
-
-![Inference](figures/inference.png)
+![Scheda Sole & ombre](docs/screenshot-sole.png)
 
 ---
 
-## ⚡ L'Evoluzione: OSINT Dashboard (v3.0)
+## ✨ Funzionalità
 
-La teoria statistica incontra l'intelligence visiva. Questo fork chiude il cerchio dell'analisi automatizzando i controlli incrociati:
+| Area | Cosa fa |
+|---|---|
+| 🧭 **Geolocalizzazione** | GeoCLIP top-k con dispersione dei candidati, preset *Mondo* o *Ucraina/Russia* (fine-tuned), reverse geocoding OpenStreetMap delle zone stimate |
+| 🤖 **Arbitro IA** | Gemini riceve immagine + GeoCLIP + OCR + oggetti + metadati + tue note; risponde con luogo, confidenza, indizi, ragionamento, ipotesi alternative e **fonti web citate** (Google Search grounding) |
+| ⚖️ **Verdetto ragionato** | Sceglie la fonte più affidabile (GPS EXIF ▸ IA con prove ▸ GeoCLIP), spiega il perché e segnala **discordanze** (es. GPS falsificato) |
+| 🗂️ **Metadati** | EXIF completo, GPS (altitudine, direzione, ora UTC), XMP, chunk PNG, profilo ICC, miniatura; osservazioni su editing, date modificate, seriali esposti, ricompressione social |
+| 🧪 **Forense** | SHA-256/SHA-1/MD5 (catena di custodia), hash percettivi pHash/dHash/aHash, Error Level Analysis, mappa del rumore, stima qualità JPEG, **marker di immagini generate da IA** (C2PA, IPTC, Stable Diffusion/ComfyUI) |
+| 🔤 **Testo & oggetti** | OCR multilingua (EasyOCR, anche cirillico/arabo/CJK) con link di ricerca per ogni testo; YOLO con immagine annotata e classi utili alla geolocalizzazione |
+| 🔁 **Pivot** | 20+ link pronti: Google Maps/Street View, Mapillary, KartaView, Google Earth, Sentinel EO Browser, Esri Wayback, Overpass Turbo, GeoHack, PeakVisor, SunCalc… e ricerca inversa su Google Lens, Yandex, Bing, TinEye, Baidu (diretta se l'immagine ha un URL pubblico) |
+| 📍 **Coordinate** | Converte da/verso decimale, DMS, DDM, UTM, Plus Code, Geohash, link Google/OSM/Bing/Apple; ricerca luoghi; distanza e azimut |
+| ☀️ **Cronolocalizzazione** | Posizione del sole (algoritmo NOAA), alba/tramonto/ora d'oro, diagramma del percorso solare, **da un'ombra all'orario** (altezza + lunghezza ombra ± direzione) |
+| 🧩 **Confronto** | Stessa immagine ricompressa/ritagliata? Quale versione è più vicina all'originale? |
+| 🗃️ **Batch** | Cartelle intere → tabella, mappa comune, export CSV/JSON |
+| 🧹 **Privacy** | Mostra cosa rivela una tua foto e ne crea una copia senza metadati |
+| 📄 **Report** | HTML autonomo (mappa, immagini, hash, log), JSON, Markdown — generati a ogni analisi |
 
-* **GUI Gradio:** Interfaccia dark-mode professionale. Trascini la foto e parte l'analisi. Nessuna riga di comando necessaria.
-* **Mappe Interattive (Folium):** I 5 migliori risultati stimati dall'IA vengono piazzati su una mappa interattiva (CartoDB Dark Matter) per darti immediatamente il contesto geografico.
-* **Scanner EXIF:** Se la foto non è stata piallata dalle compressioni dei social network, il tool estrae i metadati originali (coordinate GPS, marca e modello del dispositivo, data di scatto).
-* **Motore OCR (EasyOCR):** Legge in automatico cartelli stradali, insegne e scritte nell'immagine. Se GeoCLIP piazza il pin in Germania e l'OCR estrae la parola "Apotheke", hai una conferma solida sulla zona linguistica.
-
----
-
-## 🔮 Roadmap & Future Implementazioni
-
-Le reti neurali visive da sole sono cieche se non c'è una logica a collegare i dati. Ecco cosa verrà integrato per chiudere la pipeline di intelligence:
-
-* **Object Detection (YOLOv8):** Riconoscimento di elementi chiave per la geolocalizzazione (es. semafori specifici, targhe, vegetazione endemica, segnaletica stradale).
-* **LLM Reasoning:** Integrazione API di un modello linguistico che analizzi l'output combinato (GeoCLIP + OCR + YOLO) e formuli una deduzione logica finale (es. *"L'IA dice Europa, l'OCR legge tedesco, YOLO rileva un tram giallo. -> Berlino, Germania"*).
-* **Reverse Image Search:** Script integrato per lanciare in automatico i ritagli dell'immagine su motori come Yandex o Google Lens.
-* **Cronolocalizzazione:** Calcolo grezzo di ora solare e orientamento incrociando l'angolazione delle ombre con la data EXIF.
+Ogni motore è **opzionale e caricato al primo uso**: se manca un pacchetto o la chiave API, quel modulo viene
+saltato e segnalato, il resto funziona.
 
 ---
 
 ## ⚙️ Installazione
 
-Requisiti: Python 3.8+. L'uso di un ambiente virtuale (`venv`) è obbligatorio per non creare conflitti con le librerie di sistema.
+Requisiti: **Python 3.10+**. Usa un ambiente virtuale.
 
 ```bash
-# 1. Clona il fork
-git clone [https://github.com/Marchy02/Geo-clip-gui.git](https://github.com/Marchy02/Geo-clip-gui.git)
+git clone https://github.com/Marchy02/Geo-clip-gui.git
 cd Geo-clip-gui
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+```
 
-# 2. Crea e attiva il venv
-python -m venv venv
-source venv/bin/activate  # Su Linux/Mac
-# venv\Scripts\activate   # Su Windows
+**Installazione completa** (tutti i motori):
 
-# 3. Collega il motore IA (Editable mode)
-pip install -e .
-
-# 4. Installa le librerie della dashboard
+```bash
 pip install -r requirements.txt
 ```
 
----
+**Installazione modulare** — scegli solo ciò che ti serve:
 
-## 🚀 Come si usa
+| Comando | Include |
+|---|---|
+| `pip install -e .` | Core: dashboard, metadati, forense, coordinate, sole, confronto, privacy, report (niente GPU/ML) |
+| `pip install -e ".[geoclip]"` | + GeoCLIP (torch, transformers) |
+| `pip install -e ".[ocr,yolo]"` | + EasyOCR e YOLO |
+| `pip install -e ".[ai]"` | + arbitro Gemini |
+| `pip install -e ".[heif]"` | + foto HEIC/HEIF di iPhone |
+| `pip install -e ".[all]"` | tutto quanto sopra |
 
-A `venv` attivo, lancia semplicemente lo script dalla radice del progetto:
+> 💡 Solo CPU? Installa prima PyTorch leggero: `pip install torch --index-url https://download.pytorch.org/whl/cpu`
+>
+> Al primo uso vengono scaricati automaticamente CLIP ViT-L/14 (~1,7 GB, da HuggingFace), i modelli EasyOCR e YOLOv8n.
+
+### Chiave Gemini (facoltativa, consigliata)
+
+Crea una chiave gratuita su [Google AI Studio](https://aistudio.google.com/apikey), poi:
 
 ```bash
-python geoclip_gui.py
+cp .env.example .env    # e inserisci GEMINI_API_KEY=...
 ```
 
-Il terminale avvierà il server locale (solitamente `http://127.0.0.1:7860`). Aprilo nel browser, carica l'immagine e avvia la pipeline.
+In alternativa incollala nel campo *Chiave API Gemini* delle opzioni di analisi (non viene salvata).
 
-*Nota: Al primissimo avvio, Python scaricherà in automatico da HuggingFace i pesi di GeoCLIP e i modelli linguistici di EasyOCR. L'operazione richiederà qualche minuto a seconda della connessione.*
+### Docker
+
+```bash
+docker build -t geoosint .
+docker run -p 7860:7860 --env-file .env -v geoosint-cache:/root/.cache -v "$PWD/reports:/data/reports" geoosint
+```
 
 ---
 
-## 📜 Crediti Originali
+## 🚀 Uso
 
-Tutto il motore neurale alla base di questo strumento è **GeoCLIP**. Se utilizzi questo repository per paper o scopi di ricerca accademica, sei tenuto a citare i creatori originali del modello:
+### Dashboard web
+
+```bash
+python app.py                 # oppure: geoosint ui
+```
+
+Apri <http://127.0.0.1:7860>. Opzioni utili: `--host 0.0.0.0` (rete locale), `--auth utente:password`,
+`--share` (link pubblico temporaneo), `--inbrowser`.
+
+### Riga di comando
+
+```bash
+geoosint analyze foto.jpg                          # analisi completa + report HTML/JSON in ./reports
+geoosint analyze *.jpg --no-ai --format html md    # più file, senza IA
+geoosint batch ./cartella -r --no-ocr --no-yolo    # intera cartella (ricorsiva)
+geoosint exif foto.jpg --all                       # tutti i metadati e le osservazioni
+geoosint hash foto.jpg                             # SHA-256 + hash percettivi
+geoosint compare a.jpg b.jpg                       # stessa immagine?
+geoosint strip foto.jpg -o foto_pulita.jpg         # rimuove i metadati
+geoosint coords "45°26'27\"N 12°18'56\"E" --reverse --links
+geoosint sun 41.89 12.49 --date 2024-06-21 --time 16:30 --tz Europe/Rome
+geoosint shadow 41.89 12.49 --date 2024-06-21 --tz Europe/Rome --height 1.8 --length 2.0
+geoosint status                                    # motori installati e configurazione
+```
+
+Aggiungi `--json` per un output leggibile da altri script. `python -m geoosint …` funziona allo stesso modo.
+
+---
+
+## 🧠 Come si arriva al verdetto
+
+```
+                ┌─────────── Metadati (EXIF/XMP/GPS) ──────────┐
+ immagine ──────┼─ Forense (hash, ELA, rumore, marker IA)      ├──► Arbitro IA (Gemini + Google Search)
+                ├─ GeoCLIP top-k ──► reverse geocoding OSM     │            │
+                ├─ OCR (testi) ────────────────────────────────┤            ▼
+                └─ YOLO (oggetti) ─────────────────────────────┘      Fusione → verdetto + affidabilità
+```
+
+1. **GPS EXIF** presente → affidabilità *alta* (confrontata con l'IA: se dista molto, viene segnalata la discordanza).
+2. **Arbitro IA con prove indipendenti** (testo letto, landmark, verifica web) → affidabilità in base alla confidenza.
+3. **GeoCLIP** → stima statistica; affidabilità *media* solo se il primo candidato è netto e i candidati sono concentrati.
+
+GeoCLIP è addestrato su 4,7 milioni di foto geotaggate (MP-16) e modella la Terra come funzione continua
+tramite un *location encoder* a Random Fourier Features: restituisce una distribuzione di probabilità, non una certezza.
+
+![Inference](figures/inference.png)
+
+---
+
+## 🕵️ Flusso di lavoro consigliato
+
+1. **Analizza** l'immagine e leggi il verdetto *e la sua motivazione*.
+2. **Verifica sul posto**: apri Street View / Mapillary / satellite dai link e confronta edifici, cartelli, pali, vegetazione, orizzonte.
+3. **Pivota**: cerca i testi letti dall'OCR; lancia la ricerca inversa per trovare la copia più vecchia (spesso con contesto originale).
+4. **Cronolocalizza** con la scheda *Sole & ombre*.
+5. **Documenta**: scarica il report — l'hash SHA-256 identifica univocamente il file analizzato.
+
+---
+
+## 🔧 Configurazione
+
+Tutte le impostazioni si leggono da variabili d'ambiente o `.env` (vedi [`.env.example`](.env.example)):
+
+| Variabile | Default | Descrizione |
+|---|---|---|
+| `GEMINI_API_KEY` | — | Chiave Google AI Studio (anche `GOOGLE_API_KEY`) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Modello Gemini |
+| `GEMINI_SEARCH` | `true` | Verifica online con Google Search |
+| `GEOCLIP_PRESET` | `world` | `world` o `ukraine_russia` |
+| `GEOCLIP_TOP_K` | `5` | Candidati GeoCLIP |
+| `OCR_LANGUAGES` | `en,it,de,fr,es` | Codici lingua EasyOCR |
+| `YOLO_MODEL` / `YOLO_CONF` | `yolov8n.pt` / `0.35` | Modello e soglia YOLO |
+| `ONLINE_LOOKUPS` | `true` | `false` = nessuna chiamata a OpenStreetMap |
+| `REPORTS_DIR` | `reports` | Cartella dei report |
+| `MAX_IMAGE_MB` | `40` | Dimensione massima immagine |
+| `GRADIO_SERVER_NAME` / `GRADIO_SERVER_PORT` | `127.0.0.1` / `7860` | Server web |
+
+---
+
+## 🗂️ Struttura del progetto
+
+```
+geoosint/            # il tool
+├── config.py        # impostazioni da env/.env
+├── models.py        # strutture dati dei risultati
+├── pipeline.py      # orchestrazione degli step + fusione
+├── engines/         # GeoCLIP, EasyOCR, YOLO (caricamento lazy)
+├── ai/gemini.py     # arbitro IA
+├── forensics/       # metadati, hash, ELA, rumore, JPEG, sanitizzazione
+├── geo/             # coordinate, link, geocoding, sole
+├── report/          # export JSON / Markdown / HTML
+├── ui/              # dashboard Gradio (tema, mappe, componenti, handler)
+└── cli.py           # riga di comando
+geoclip/             # motore neurale GeoCLIP (pesi, gallerie GPS, training)
+notebooks/           # notebook di fine-tuning
+tests/               # suite pytest (offline)
+```
+
+## 🧪 Sviluppo
+
+```bash
+pip install -e ".[dev]"
+pytest              # 80+ test, nessuna rete richiesta
+ruff check . && ruff format geoosint tests
+```
+
+La CI esegue lint e test su Linux e Windows (Python 3.10 e 3.12) e un job dedicato ai pesi GeoCLIP.
+
+---
+
+## ⚠️ Uso responsabile
+
+Strumento pensato per giornalismo, ricerca, verifica dei fatti e indagini legittime. Rispetta le leggi
+sulla privacy (es. GDPR) e i termini d'uso dei servizi collegati. Ogni risultato automatico è un **indizio**,
+non una prova: verifica sempre manualmente.
+
+## 📜 Crediti
+
+Il motore neurale è **GeoCLIP**. Se usi questo repository per ricerca, cita gli autori originali:
 
 ```bibtex
 @inproceedings{geoclip,
@@ -90,3 +219,5 @@ Tutto il motore neurale alla base di questo strumento è **GeoCLIP**. Se utilizz
   year={2023}
 }
 ```
+
+Dati cartografici © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
