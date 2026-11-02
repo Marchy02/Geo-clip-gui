@@ -151,6 +151,16 @@ def sun_times(day: date, lat: float, lon: float, tz: tzinfo) -> dict[str, dateti
     }
 
 
+SUN_TIME_LABELS = {
+    "sunrise": "Alba",
+    "golden_morning_end": "Fine ora d'oro",
+    "solar_noon": "Mezzogiorno solare",
+    "golden_evening_start": "Inizio ora d'oro",
+    "sunset": "Tramonto",
+    "max_elevation": "Elevazione massima",
+}
+
+
 @dataclass(frozen=True)
 class ShadowMatch:
     when: datetime
