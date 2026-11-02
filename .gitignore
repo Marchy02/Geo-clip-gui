@@ -1,5 +1,40 @@
-*.pth
+# --- Python ---
 __pycache__/
+*.py[cod]
 *.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Ambienti virtuali / segreti ---
 venv/
+.venv/
+.venv-*/
 .env
+
+# --- Artefatti di training (pesanti, non versionare) ---
+geoclip/snapshots/
+geoclip/wandb/
+wandb/
+*.ckpt
+
+# --- Modelli scaricati automaticamente a runtime ---
+yolov8*.pt
+yolo11*.pt
+
+# --- Output generati dal tool ---
+reports/
+cases/
+map_result.html
+*.log
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
