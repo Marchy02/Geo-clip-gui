@@ -57,7 +57,7 @@ def _options_from_args(args):
 
 
 def _summary(report) -> None:
-    print(f"\n▶ {Path(report.image_path).name}")
+    print(f"\n{Path(report.image_path).name}")
     if report.final:
         f = report.final
         print(f"  Verdetto     {f.point.lat:.6f}, {f.point.lon:.6f}  [{f.source.label} · affidabilità {f.confidence}]")
@@ -74,7 +74,7 @@ def _summary(report) -> None:
         print("  OCR          " + " | ".join(t.text for t in report.ocr[:10]))
     if report.metadata:
         for item in [*report.metadata.ai_markers, *report.metadata.findings]:
-            print(f"  ! {item}")
+            print(f"  - {item}")
     for s in report.steps:
         if s.status != "ok":
             print(f"  [{s.status}] {s.name}: {s.detail}")
@@ -92,7 +92,7 @@ def cmd_analyze(args) -> int:
         try:
             report = pipe.run(image, opts, progress=None if args.quiet else lambda f, m: print(f"  … {m}", file=sys.stderr))
         except Exception as exc:
-            print(f"✖ {image}: {exc}", file=sys.stderr)
+            print(f"Errore su {image}: {exc}", file=sys.stderr)
             code = 1
             continue
         if args.json:
@@ -125,7 +125,7 @@ def cmd_exif(args) -> int:
     if args.json:
         _print_json(meta)
         return 0
-    print(f"▶ {meta.file_name}  ({meta.format} {meta.width}×{meta.height}, {meta.file_size / 1024:.1f} KB)")
+    print(f"{meta.file_name}  ({meta.format} {meta.width}×{meta.height}, {meta.file_size / 1024:.1f} KB)")
     _rows(
         [
             ("Fotocamera", meta.camera),
@@ -145,7 +145,7 @@ def cmd_exif(args) -> int:
             print("\n  -- XMP --")
             _rows(list(meta.xmp.items()))
     for item in [*meta.ai_markers, *meta.findings]:
-        print(f"  ! {item}")
+        print(f"  - {item}")
     return 0
 
 
@@ -157,7 +157,7 @@ def cmd_hash(args) -> int:
         if args.json:
             _print_json({"file": image, **to_jsonable(h)})
         else:
-            print(f"▶ {image}")
+            print(image)
             _rows([("SHA-256", h.sha256), ("SHA-1", h.sha1), ("MD5", h.md5), ("pHash", h.phash), ("dHash", h.dhash), ("aHash", h.ahash)])
     return 0
 
@@ -201,7 +201,7 @@ def cmd_coords(args) -> int:
     try:
         p = parse_coordinates(" ".join(args.text))
     except CoordinateError as exc:
-        print(f"✖ {exc}", file=sys.stderr)
+        print(f"Errore: {exc}", file=sys.stderr)
         return 2
     data: dict = {"lat": p.lat, "lon": p.lon, "formats": all_formats(p.lat, p.lon)}
     if args.reverse:
@@ -240,7 +240,7 @@ def cmd_sun(args) -> int:
     if args.json:
         _print_json({"position": pos, "times": times})
         return 0
-    print(f"▶ {p} · {when:%Y-%m-%d %H:%M %Z}")
+    print(f"{p} · {when:%Y-%m-%d %H:%M %Z}")
     _rows(
         [
             ("Azimut", f"{pos.azimuth:.1f}° ({compass_point(pos.azimuth)})"),
@@ -400,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 130
     except (FileNotFoundError, ValueError) as exc:
-        print(f"✖ {exc}", file=sys.stderr)
+        print(f"Errore: {exc}", file=sys.stderr)
         return 2
 
 

@@ -252,7 +252,7 @@ def _findings(report: MetadataReport) -> list[str]:
         out.append("Nessun metadato EXIF/XMP: immagine probabilmente ripulita (social network, messaggistica o tool di sanitizzazione).")
     if report.gps:
         out.append(
-            f"⚠ Coordinate GPS presenti nei metadati ({report.gps.lat:.6f}, {report.gps.lon:.6f}): prova di posizione forte, ma falsificabile."
+            f"Coordinate GPS presenti nei metadati ({report.gps.lat:.6f}, {report.gps.lon:.6f}): prova di posizione forte, ma falsificabile."
         )
     software = report.software.lower()
     for name in EDITING_SOFTWARE:
