@@ -1,4 +1,4 @@
-"""LLM arbiter: Google Gemini cross-checks every clue and decides the location.
+"""Google Gemini provider.
 
 The model receives the image plus everything the other engines found
 (EXIF, OCR, objects, GeoCLIP candidates with their reverse-geocoded names)
@@ -9,157 +9,44 @@ web sources it used are returned for the analyst to check.
 
 from __future__ import annotations
 
-import io
-import json
 import logging
-import re
 from functools import lru_cache
 from typing import Any
 
-from PIL import Image
-
-from ..models import AiVerdict, Detection, GeoPoint, MetadataReport, OcrText
+from ..models import AiVerdict
+from .common import (  # noqa: F401  (re-exported for backwards compatibility)
+    MAX_SIDE,
+    RESPONSE_SPEC,
+    SYSTEM_PROMPT,
+    build_context,
+    encode_image,
+    parse_verdict,
+    redact,
+    user_prompt,
+    verdict_from_dict,
+    verdict_from_text,
+)
 
 log = logging.getLogger(__name__)
 
-MAX_SIDE = 2048
-
-SYSTEM_PROMPT = """Sei un analista OSINT esperto di geolocalizzazione di immagini (stile GeoGuessr/Bellingcat).
-Metodo: osserva l'immagine e i dati forniti, elenca gli indizi verificabili (lingua e alfabeto delle scritte,
-insegne e nomi di attività, segnaletica stradale, targhe, lato di guida, architettura, vegetazione, clima,
-pali e infrastrutture, orografia), poi formula l'ipotesi più specifica che le prove permettono.
-Le coordinate di GeoCLIP sono solo una stima statistica: usale come indizio debole, MAI come prova.
-Se hai lo strumento di ricerca web, usalo per verificare nomi di attività, landmark e testi letti.
-Non inventare: se le prove non bastano per un luogo preciso, indica comunque paese/regione più probabili
-con confidenza bassa e imposta "override" a false."""
-
-RESPONSE_SPEC = """Rispondi SOLO con un oggetto JSON valido (nessun testo fuori dal JSON, niente markdown) con queste chiavi:
-{
-  "override": boolean,          // true SOLO se hai prove indipendenti (testo letto, landmark riconosciuto, ricerca web) per un punto preciso
-  "lat": number | null,         // latitudine decimale del punto più probabile (anche se override=false, se stimabile)
-  "lon": number | null,
-  "location_name": string,      // es. "Piazza San Marco, Venezia"
-  "country": string,            // paese più probabile
-  "confidence": integer,        // 0-100
-  "clues": [string],            // indizi osservati, uno per voce, brevi e verificabili
-  "reasoning": string,          // ragionamento conciso che collega gli indizi alla conclusione
-  "alternatives": [string]      // altre ipotesi plausibili, in ordine di probabilità
-}
-Scrivi i testi in italiano."""
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 @lru_cache(maxsize=4)
-def _client(api_key: str, timeout_s: int):
+def _client(api_key: str, timeout_s: int, base_url: str = ""):
     from google import genai
     from google.genai import types
 
-    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_s * 1000))
+    options: dict[str, Any] = {"timeout": timeout_s * 1000}
+    if base_url:
+        options["base_url"] = base_url
+    return genai.Client(api_key=api_key, http_options=types.HttpOptions(**options))
 
 
 def _image_part(image_path: str):
     from google.genai import types
 
-    with Image.open(image_path) as img:
-        img = img.convert("RGB")
-        img.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=92)
-    return types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg")
-
-
-def build_context(
-    geoclip: list[GeoPoint],
-    ocr: list[OcrText],
-    detections: list[Detection],
-    metadata: MetadataReport | None,
-    analyst_notes: str = "",
-) -> str:
-    lines = ["DATI RACCOLTI DAGLI ALTRI MOTORI:"]
-    if geoclip:
-        lines.append("- Candidati GeoCLIP (stima statistica, poco affidabile):")
-        for g in geoclip:
-            where = f" — {g.address}" if g.address else ""
-            lines.append(f"    {g.lat:.4f}, {g.lon:.4f} ({(g.prob or 0) * 100:.1f}%){where}")
-    else:
-        lines.append("- GeoCLIP: non eseguito.")
-    texts = [f'"{t.text}" ({t.confidence:.0%})' for t in ocr[:40]]
-    lines.append(f"- Testo letto via OCR: {', '.join(texts) if texts else 'nessuno'}")
-    if detections:
-        counts: dict[str, int] = {}
-        for d in detections:
-            counts[d.label] = counts.get(d.label, 0) + 1
-        lines.append("- Oggetti rilevati (YOLO): " + ", ".join(f"{k}×{v}" for k, v in counts.items()))
-    else:
-        lines.append("- Oggetti rilevati (YOLO): nessuno o non eseguito")
-    if metadata:
-        meta = []
-        if metadata.camera:
-            meta.append(f"fotocamera {metadata.camera}")
-        if metadata.datetime_original:
-            meta.append(f"data scatto {metadata.datetime_original} {metadata.timezone_offset or ''}".strip())
-        if metadata.gps:
-            meta.append(f"GPS EXIF {metadata.gps.lat:.6f}, {metadata.gps.lon:.6f}")
-        if metadata.software:
-            meta.append(f"software {metadata.software}")
-        lines.append("- Metadati: " + ("; ".join(meta) if meta else "assenti"))
-    if analyst_notes.strip():
-        lines.append(f"- NOTE DELL'ANALISTA (contesto fornito dall'utente): {analyst_notes.strip()}")
-    return "\n".join(lines)
-
-
-_JSON_BLOCK = re.compile(r"\{.*\}", re.S)
-
-
-def parse_verdict(text: str) -> dict[str, Any]:
-    """Extract the first JSON object from the model's reply (tolerates fences/prose)."""
-    if not text:
-        raise ValueError("risposta vuota")
-    cleaned = re.sub(r"```(?:json)?", "", text).strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = _JSON_BLOCK.search(cleaned)
-        if not match:
-            raise ValueError("nessun oggetto JSON nella risposta") from None
-        return json.loads(match.group(0))
-
-
-def _as_float(value: Any, lo: float, hi: float) -> float | None:
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return None
-    return f if lo <= f <= hi else None
-
-
-def _as_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
-
-
-def verdict_from_dict(data: dict[str, Any], model: str = "") -> AiVerdict:
-    lat = _as_float(data.get("lat"), -90, 90)
-    lon = _as_float(data.get("lon"), -180, 180)
-    try:
-        confidence = int(round(float(data.get("confidence", 0))))
-    except (TypeError, ValueError):
-        confidence = 0
-    override = bool(data.get("override")) and lat is not None and lon is not None
-    return AiVerdict(
-        override=override,
-        lat=lat,
-        lon=lon,
-        location_name=str(data.get("location_name") or "").strip(),
-        country=str(data.get("country") or "").strip(),
-        confidence=max(0, min(100, confidence)),
-        reasoning=str(data.get("reasoning") or data.get("description") or "").strip(),
-        clues=_as_list(data.get("clues")),
-        alternatives=_as_list(data.get("alternatives")),
-        model=model,
-    )
+    return types.Part.from_bytes(data=encode_image(image_path), mime_type="image/jpeg")
 
 
 def _grounding_sources(response) -> list[dict[str, str]]:
@@ -185,9 +72,10 @@ def analyze(
     model: str,
     use_search: bool = True,
     timeout_s: int = 120,
+    base_url: str = "",
 ) -> AiVerdict:
     if not api_key:
-        return AiVerdict(error="Chiave Gemini assente: impostala in .env (GEMINI_API_KEY) o nelle opzioni.")
+        return AiVerdict(error="Chiave Gemini assente: impostala nel pannello Impostazioni, in .env (GEMINI_API_KEY) o nelle opzioni.")
     try:
         from google.genai import types
     except ImportError:
@@ -200,18 +88,26 @@ def analyze(
         config_kwargs["response_mime_type"] = "application/json"
 
     try:
-        response = _client(api_key, timeout_s).models.generate_content(
+        response = _client(api_key, timeout_s, base_url).models.generate_content(
             model=model,
-            contents=[_image_part(image_path), context + "\n\n" + RESPONSE_SPEC],
+            contents=[_image_part(image_path), user_prompt(context)],
             config=types.GenerateContentConfig(**config_kwargs),
         )
-        verdict = verdict_from_dict(parse_verdict(response.text or ""), model=model)
-        verdict.sources = _grounding_sources(response)
-        return verdict
-    except (ValueError, json.JSONDecodeError) as exc:
-        return AiVerdict(model=model, error=f"Risposta Gemini non in formato JSON: {exc}")
     except Exception as exc:  # network, quota, invalid key...
-        message = str(exc)
-        if api_key and api_key in message:
-            message = message.replace(api_key, "***")
-        return AiVerdict(model=model, error=f"Errore API Gemini: {message[:500]}")
+        return AiVerdict(model=model, error=f"Errore API Gemini: {redact(str(exc), api_key)[:500]}")
+    verdict = verdict_from_text(response.text or "", model)
+    verdict.sources = _grounding_sources(response)
+    return verdict
+
+
+def list_models(api_key: str | None, timeout_s: int = 20, base_url: str = "") -> list[str]:
+    """Models that can generate content with this key (raises on auth/network errors)."""
+    if not api_key:
+        raise ValueError("chiave API assente")
+    models = []
+    for m in _client(api_key, timeout_s, base_url).models.list():
+        actions = getattr(m, "supported_actions", None) or []
+        if actions and "generateContent" not in actions:
+            continue
+        models.append((m.name or "").removeprefix("models/"))
+    return sorted(filter(None, models))
