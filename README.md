@@ -1,4 +1,6 @@
-# 🛰️ GeoOSINT — coltellino svizzero OSINT per immagini
+# GeoOSINT
+
+Toolkit OSINT per la geolocalizzazione e la verifica di immagini.
 
 [![CI](https://github.com/Marchy02/Geo-clip-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/Marchy02/Geo-clip-gui/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -16,30 +18,30 @@ Tutto da una dashboard web o da riga di comando, con report esportabili.
 
 ---
 
-## ✨ Funzionalità
+## Funzionalità
 
 | Area | Cosa fa |
 |---|---|
-| 🧭 **Geolocalizzazione** | GeoCLIP top-k con dispersione dei candidati, preset *Mondo* o *Ucraina/Russia* (fine-tuned), reverse geocoding OpenStreetMap delle zone stimate |
-| 🤖 **Arbitro IA** | Gemini riceve immagine + GeoCLIP + OCR + oggetti + metadati + tue note; risponde con luogo, confidenza, indizi, ragionamento, ipotesi alternative e **fonti web citate** (Google Search grounding) |
-| ⚖️ **Verdetto ragionato** | Sceglie la fonte più affidabile (GPS EXIF ▸ IA con prove ▸ GeoCLIP), spiega il perché e segnala **discordanze** (es. GPS falsificato) |
-| 🗂️ **Metadati** | EXIF completo, GPS (altitudine, direzione, ora UTC), XMP, chunk PNG, profilo ICC, miniatura; osservazioni su editing, date modificate, seriali esposti, ricompressione social |
-| 🧪 **Forense** | SHA-256/SHA-1/MD5 (catena di custodia), hash percettivi pHash/dHash/aHash, Error Level Analysis, mappa del rumore, stima qualità JPEG, **marker di immagini generate da IA** (C2PA, IPTC, Stable Diffusion/ComfyUI) |
-| 🔤 **Testo & oggetti** | OCR multilingua (EasyOCR, anche cirillico/arabo/CJK) con link di ricerca per ogni testo; YOLO con immagine annotata e classi utili alla geolocalizzazione |
-| 🔁 **Pivot** | 20+ link pronti: Google Maps/Street View, Mapillary, KartaView, Google Earth, Sentinel EO Browser, Esri Wayback, Overpass Turbo, GeoHack, PeakVisor, SunCalc… e ricerca inversa su Google Lens, Yandex, Bing, TinEye, Baidu (diretta se l'immagine ha un URL pubblico) |
-| 📍 **Coordinate** | Converte da/verso decimale, DMS, DDM, UTM, Plus Code, Geohash, link Google/OSM/Bing/Apple; ricerca luoghi; distanza e azimut |
-| ☀️ **Cronolocalizzazione** | Posizione del sole (algoritmo NOAA), alba/tramonto/ora d'oro, diagramma del percorso solare, **da un'ombra all'orario** (altezza + lunghezza ombra ± direzione) |
-| 🧩 **Confronto** | Stessa immagine ricompressa/ritagliata? Quale versione è più vicina all'originale? |
-| 🗃️ **Batch** | Cartelle intere → tabella, mappa comune, export CSV/JSON |
-| 🧹 **Privacy** | Mostra cosa rivela una tua foto e ne crea una copia senza metadati |
-| 📄 **Report** | HTML autonomo (mappa, immagini, hash, log), JSON, Markdown — generati a ogni analisi |
+| **Geolocalizzazione** | GeoCLIP top-k con dispersione dei candidati, preset *Mondo* o *Ucraina/Russia* (fine-tuned), reverse geocoding OpenStreetMap delle zone stimate |
+| **Arbitro IA** | Gemini riceve immagine + GeoCLIP + OCR + oggetti + metadati + tue note; risponde con luogo, confidenza, indizi, ragionamento, ipotesi alternative e **fonti web citate** (Google Search grounding) |
+| **Verdetto ragionato** | Sceglie la fonte più affidabile (GPS EXIF, poi IA con prove, poi GeoCLIP), spiega il perché e segnala **discordanze** (es. GPS falsificato) |
+| **Metadati** | EXIF completo, GPS (altitudine, direzione, ora UTC), XMP, chunk PNG, profilo ICC, miniatura; osservazioni su editing, date modificate, seriali esposti, ricompressione social |
+| **Forense** | SHA-256/SHA-1/MD5 (catena di custodia), hash percettivi pHash/dHash/aHash, Error Level Analysis, mappa del rumore, stima qualità JPEG, **marker di immagini generate da IA** (C2PA, IPTC, Stable Diffusion/ComfyUI) |
+| **Testo & oggetti** | OCR multilingua (EasyOCR, anche cirillico/arabo/CJK) con link di ricerca per ogni testo; YOLO con immagine annotata e classi utili alla geolocalizzazione |
+| **Pivot** | 20+ link pronti: Google Maps/Street View, Mapillary, KartaView, Google Earth, Sentinel EO Browser, Esri Wayback, Overpass Turbo, GeoHack, PeakVisor, SunCalc… e ricerca inversa su Google Lens, Yandex, Bing, TinEye, Baidu (diretta se l'immagine ha un URL pubblico) |
+| **Coordinate** | Converte da/verso decimale, DMS, DDM, UTM, Plus Code, Geohash, link Google/OSM/Bing/Apple; ricerca luoghi; distanza e azimut |
+| **Cronolocalizzazione** | Posizione del sole (algoritmo NOAA), alba/tramonto/ora d'oro, diagramma del percorso solare, **da un'ombra all'orario** (altezza + lunghezza ombra ± direzione) |
+| **Confronto** | Stessa immagine ricompressa/ritagliata? Quale versione è più vicina all'originale? |
+| **Batch** | Cartelle intere → tabella, mappa comune, export CSV/JSON |
+| **Privacy** | Mostra cosa rivela una tua foto e ne crea una copia senza metadati |
+| **Report** | HTML autonomo (mappa, immagini, hash, log), JSON, Markdown — generati a ogni analisi |
 
 Ogni motore è **opzionale e caricato al primo uso**: se manca un pacchetto o la chiave API, quel modulo viene
 saltato e segnalato, il resto funziona.
 
 ---
 
-## ⚙️ Installazione
+## Installazione
 
 Requisiti: **Python 3.10+**. Usa un ambiente virtuale.
 
@@ -67,7 +69,7 @@ pip install -r requirements.txt
 | `pip install -e ".[heif]"` | + foto HEIC/HEIF di iPhone |
 | `pip install -e ".[all]"` | tutto quanto sopra |
 
-> 💡 Solo CPU? Installa prima PyTorch leggero: `pip install torch --index-url https://download.pytorch.org/whl/cpu`
+> **Solo CPU?** Installa prima PyTorch leggero: `pip install torch --index-url https://download.pytorch.org/whl/cpu`
 >
 > Al primo uso vengono scaricati automaticamente CLIP ViT-L/14 (~1,7 GB, da HuggingFace), i modelli EasyOCR e YOLOv8n.
 
@@ -90,7 +92,7 @@ docker run -p 7860:7860 --env-file .env -v geoosint-cache:/root/.cache -v "$PWD/
 
 ---
 
-## 🚀 Uso
+## Uso
 
 ### Dashboard web
 
@@ -121,7 +123,7 @@ Aggiungi `--json` per un output leggibile da altri script. `python -m geoosint �
 
 ---
 
-## 🧠 Come si arriva al verdetto
+## Come si arriva al verdetto
 
 ```
                 ┌─────────── Metadati (EXIF/XMP/GPS) ──────────┐
@@ -142,7 +144,7 @@ tramite un *location encoder* a Random Fourier Features: restituisce una distrib
 
 ---
 
-## 🕵️ Flusso di lavoro consigliato
+## Flusso di lavoro consigliato
 
 1. **Analizza** l'immagine e leggi il verdetto *e la sua motivazione*.
 2. **Verifica sul posto**: apri Street View / Mapillary / satellite dai link e confronta edifici, cartelli, pali, vegetazione, orizzonte.
@@ -152,7 +154,7 @@ tramite un *location encoder* a Random Fourier Features: restituisce una distrib
 
 ---
 
-## 🔧 Configurazione
+## Configurazione
 
 Tutte le impostazioni si leggono da variabili d'ambiente o `.env` (vedi [`.env.example`](.env.example)):
 
@@ -172,7 +174,7 @@ Tutte le impostazioni si leggono da variabili d'ambiente o `.env` (vedi [`.env.e
 
 ---
 
-## 🗂️ Struttura del progetto
+## Struttura del progetto
 
 ```
 geoosint/            # il tool
@@ -191,7 +193,7 @@ notebooks/           # notebook di fine-tuning
 tests/               # suite pytest (offline)
 ```
 
-## 🧪 Sviluppo
+## Sviluppo
 
 ```bash
 pip install -e ".[dev]"
@@ -203,13 +205,13 @@ La CI esegue lint e test su Linux e Windows (Python 3.10 e 3.12) e un job dedica
 
 ---
 
-## ⚠️ Uso responsabile
+## Uso responsabile
 
 Strumento pensato per giornalismo, ricerca, verifica dei fatti e indagini legittime. Rispetta le leggi
 sulla privacy (es. GDPR) e i termini d'uso dei servizi collegati. Ogni risultato automatico è un **indizio**,
 non una prova: verifica sempre manualmente.
 
-## 📜 Crediti
+## Crediti
 
 Il motore neurale è **GeoCLIP**. Se usi questo repository per ricerca, cita gli autori originali:
 
