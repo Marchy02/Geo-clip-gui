@@ -33,7 +33,7 @@ dependencies = [
 geoclip = ["torch>=2.1", "transformers>=4.40"]
 ocr = ["easyocr>=1.7.2"]
 yolo = ["ultralytics>=8.3"]
-ai = ["google-genai>=1.0"]
+ai = ["litellm>=1.70"]
 heif = ["pillow-heif>=0.16"]
 ml = ["geoosint[geoclip,ocr,yolo]"]
 all = ["geoosint[ml,ai,heif]"]

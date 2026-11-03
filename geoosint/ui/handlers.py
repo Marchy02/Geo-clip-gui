@@ -31,7 +31,7 @@ MODULES = {
     "GeoCLIP": "geoclip",
     "OCR": "ocr",
     "Oggetti (YOLO)": "yolo",
-    "Arbitro IA (Gemini)": "ai",
+    "Arbitro IA": "ai",
     "Reverse geocoding": "reverse_geocode",
 }
 OCR_LANGS = {
@@ -50,7 +50,9 @@ def header_html() -> str:
     for st in statuses():
         # ok = loaded, idle = installed (loads on first use), bad = missing
         chips.append((st.name, "ok" if st.loaded else ("idle" if st.installed else "bad")))
-    chips.append(("Gemini", "ok" if s.gemini_api_key and modules_available("google.genai")[0] else "warn"))
+    provider = s.provider()
+    ai_ok = provider is not None and provider.is_ready() and modules_available("litellm")[0]
+    chips.append((f"IA · {provider.name}" if provider else "IA", "ok" if ai_ok else "warn"))
     chips.append(("Rete" if s.online_lookups else "Offline", "ok" if s.online_lookups else "warn"))
     return ui.header(__version__, chips)
 
@@ -98,6 +100,7 @@ def run_analysis(
     use_search: bool,
     notes: str,
     image_url: str = "",
+    provider_id: str | None = None,
     progress=None,
 ):
     """Return the tuple of outputs wired in ``app.py`` (see ``ANALYSIS_OUTPUTS``)."""
@@ -117,9 +120,10 @@ def run_analysis(
         geoclip_preset=preset,
         top_k=int(top_k),
         ocr_languages=langs,
-        gemini_api_key=(api_key or "").strip() or None,
-        gemini_model=(model or "").strip() or None,
-        gemini_search=bool(use_search),
+        ai_provider=provider_id or None,
+        ai_api_key=(api_key or "").strip() or None,
+        ai_model=(model or "").strip() or None,
+        ai_search=bool(use_search),
         analyst_notes=notes or "",
     )
 
@@ -480,15 +484,18 @@ def status_html() -> str:
     for st in statuses():
         state = "pronto, si carica al primo uso" if st.installed else st.detail
         rows.append((st.name, "caricato" if st.loaded else state))
-    gemini_ok, gemini_detail = modules_available("google.genai")
-    if not gemini_ok:
-        rows.append(("Gemini", gemini_detail))
+    llm_ok, llm_detail = modules_available("litellm")
+    active = s.provider()
+    if not llm_ok:
+        rows.append(("Arbitro IA", f'{llm_detail} (pip install -e ".[ai]")'))
+    elif active is None:
+        rows.append(("Arbitro IA", "nessun provider attivo: configuralo in Impostazioni"))
     else:
-        rows.append(("Gemini", "chiave configurata" if s.gemini_api_key else "chiave assente: aggiungila nelle opzioni o nel file .env"))
+        rows.append(("Arbitro IA", f"{active.name}: " + (active.problem() or "pronto")))
     settings_rows = ui.kv_table(
         [
-            ("Modello Gemini", s.gemini_model),
-            ("Verifica con Google Search", "attiva" if s.gemini_search else "disattiva"),
+            ("Provider IA attivo", f"{active.name} ({active.litellm_model})" if active else "nessuno"),
+            ("Ricerca web", ("attiva" if active.web_search else "disattiva") if active else ""),
             ("Modello GeoCLIP", s.geoclip_preset),
             ("Lingue OCR", ", ".join(s.ocr_languages)),
             ("Modello YOLO", s.yolo_model),
@@ -500,5 +507,5 @@ def status_html() -> str:
     return ui.section("Motori", ui.kv_table(rows), "Stato") + ui.section(
         "Configurazione attiva",
         settings_rows
-        + "<p class='muted'>Si cambia con le variabili d'ambiente o il file <code>.env</code> (modello in <code>.env.example</code>).</p>",
+        + "<p class='muted'>Si cambia dalla scheda <b>Impostazioni</b>, oppure con le variabili d'ambiente o il file <code>.env</code>.</p>",
     )

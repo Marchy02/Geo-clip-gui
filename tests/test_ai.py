@@ -1,6 +1,6 @@
 import pytest
 
-from geoosint.ai.gemini import analyze, build_context, parse_verdict, verdict_from_dict
+from geoosint.ai.common import build_context, parse_verdict, verdict_from_dict
 from geoosint.models import Detection, GeoPoint, OcrText
 
 
@@ -32,8 +32,3 @@ def test_build_context_contains_all_clues():
         "foto di febbraio",
     )
     assert "Milano" in ctx and "Apotheke" in ctx and "car×2" in ctx and "febbraio" in ctx
-
-
-def test_analyze_without_key():
-    v = analyze("missing.jpg", "ctx", api_key=None, model="x")
-    assert v.error and "Chiave" in v.error

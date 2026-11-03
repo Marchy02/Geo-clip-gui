@@ -51,7 +51,8 @@ def _options_from_args(args):
         geoclip_preset=args.preset,
         top_k=args.top_k,
         ocr_languages=args.ocr_lang,
-        gemini_model=args.model,
+        ai_provider=args.provider,
+        ai_model=args.model,
         analyst_notes=args.notes or "",
     )
 
@@ -294,9 +295,17 @@ def cmd_status(args) -> int:
     s = get_settings()
     for st in statuses():
         print(f"  {st.name:8} {'OK ' if st.installed else 'NO '} {st.detail}")
-    print(
-        f"  Gemini   {'OK ' if s.gemini_api_key else 'NO '} {'chiave configurata' if s.gemini_api_key else 'GEMINI_API_KEY assente'} ({s.gemini_model})"
-    )
+    active = s.provider()
+    for p in s.ai_providers:
+        mark = "*" if active and p.id == active.id else " "
+        state = "OK " if p.is_ready() else "NO "
+        print(
+            f" {mark}IA       {state} {p.id} ({p.kind}/{p.model or '?'}) chiave {p.key_source()}"
+            + (f" — {p.problem()}" if p.problem() else "")
+        )
+    from .user_config import config_path
+
+    print(f"  Impostazioni salvate in {config_path()}")
     return 0
 
 
@@ -313,12 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--no-geoclip", action="store_true")
         p.add_argument("--no-ocr", action="store_true")
         p.add_argument("--no-yolo", action="store_true")
-        p.add_argument("--no-ai", action="store_true", help="non usare Gemini")
+        p.add_argument("--no-ai", action="store_true", help="non usare l'arbitro IA")
         p.add_argument("--offline", action="store_true", help="niente reverse geocoding")
         p.add_argument("--preset", choices=["world", "ukraine_russia"], default=s.geoclip_preset)
         p.add_argument("--top-k", type=int, default=s.geoclip_top_k)
         p.add_argument("--ocr-lang", nargs="+", metavar="LANG", help="codici EasyOCR (es. en it de)")
-        p.add_argument("--model", help="modello Gemini")
+        p.add_argument("--provider", help="id del provider IA (vedi: geoosint status)")
+        p.add_argument("--model", help="modello IA per questa analisi (sovrascrive quello del provider)")
         p.add_argument("--notes", help="contesto per l'arbitro IA")
         p.add_argument("--format", nargs="*", choices=["json", "md", "html"], default=["html", "json"], help="report da salvare")
         p.add_argument("-o", "--output", help="cartella dei report")

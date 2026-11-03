@@ -19,6 +19,8 @@ import gradio as gr
 from ..config import get_settings
 from ..engines.geoclip_engine import presets
 from . import handlers as h
+from . import settings_handlers as sh
+from .settings_tab import build_settings_tab
 from .theme import CSS, HEAD, build_theme
 
 EXAMPLE_IMAGE = Path(__file__).resolve().parents[2] / "geoclip" / "images" / "Kauai.png"
@@ -50,11 +52,13 @@ def build_app() -> gr.Blocks:
     lang_labels = list(h.OCR_LANGS)
     default_langs = [label for label, code in h.OCR_LANGS.items() if code in s.ocr_languages] or ["Inglese"]
     all_modules = list(h.MODULES)
-    ai_hint = (
-        "Arbitro IA attivo: la chiave Gemini è configurata."
-        if s.gemini_api_key
-        else "Senza chiave Gemini l'analisi usa solo i motori locali. Puoi incollarla nelle opzioni."
-    )
+    active = s.provider()
+    if active and active.is_ready():
+        ai_hint = f"Arbitro IA attivo: {active.name} ({active.model})."
+    elif active:
+        ai_hint = f"Arbitro IA {active.name}: {active.problem()}. Completa la configurazione in Impostazioni."
+    else:
+        ai_hint = "Nessun provider IA configurato: l'analisi usa solo i motori locali. Aggiungine uno in Impostazioni."
 
     with gr.Blocks(title="GeoOSINT") as demo:
         header = gr.HTML(h.header_html())
@@ -90,16 +94,24 @@ def build_app() -> gr.Blocks:
                                 preset = gr.Dropdown(preset_choices, value=s.geoclip_preset, label="Modello GeoCLIP", scale=3)
                                 top_k = gr.Slider(1, 20, value=s.geoclip_top_k, step=1, label="Candidati", scale=2)
                             ocr_langs = gr.Dropdown(lang_labels, value=default_langs, multiselect=True, label="Lingue da leggere (OCR)")
-                            api_key = gr.Textbox(
-                                label="Chiave API Gemini",
-                                type="password",
-                                placeholder="configurata nel file .env"
-                                if s.gemini_api_key
-                                else "incolla la chiave: resta solo in questa sessione",
-                            )
                             with gr.Row():
-                                model = gr.Textbox(value=s.gemini_model, label="Modello Gemini", scale=3)
-                                use_search = gr.Checkbox(value=s.gemini_search, label="Verifica con Google Search", scale=2)
+                                ai_provider = gr.Dropdown(
+                                    sh.provider_choices(), value=active.id if active else None, label="Provider IA", scale=3
+                                )
+                                use_search = gr.Checkbox(
+                                    value=bool(active and active.web_search),
+                                    label="Ricerca web",
+                                    scale=2,
+                                    info="se il provider la supporta",
+                                )
+                            with gr.Row():
+                                model = gr.Textbox(label="Modello", placeholder="vuoto = quello del provider", scale=3)
+                                api_key = gr.Textbox(
+                                    label="Chiave per questa sessione",
+                                    type="password",
+                                    placeholder="facoltativa, non viene salvata",
+                                    scale=3,
+                                )
                             notes = gr.Textbox(
                                 label="Note per l'IA",
                                 placeholder="Ciò che sai già, es. pubblicata su Telegram il 3 marzo, si parla di una città costiera",
@@ -156,12 +168,13 @@ def build_app() -> gr.Blocks:
                     forensic_html, ocr_html, yolo_img, yolo_html, reverse_html, report_files, steps, report_json,
                 ]  # fmt: skip
 
-                def _run(img, mods, pre, k, langs, key, mdl, search, nts, img_url, progress=gr.Progress()):
-                    return h.run_analysis(img, mods, pre, k, langs, key, mdl, search, nts, img_url, progress=progress)
+                def _run(img, mods, pre, k, langs, key, mdl, search, nts, img_url, prov, progress=gr.Progress()):
+                    return h.run_analysis(img, mods, pre, k, langs, key, mdl, search, nts, img_url, provider_id=prov, progress=progress)
 
+                ai_provider.input(sh.provider_search_default, ai_provider, use_search, api_visibility="private")
                 run_btn.click(
                     _run,
-                    inputs=[image, modules, preset, top_k, ocr_langs, api_key, model, use_search, notes, url],
+                    inputs=[image, modules, preset, top_k, ocr_langs, api_key, model, use_search, notes, url, ai_provider],
                     outputs=outputs,
                     api_name="analyze",
                 ).then(h.header_html, outputs=header, api_visibility="private")
@@ -287,6 +300,9 @@ def build_app() -> gr.Blocks:
                 priv_btn.click(h.privacy_tool, priv_in, [priv_out, priv_file], api_name="strip_metadata")
 
             # ------------------------------------------------------------------
+            settings_tab = build_settings_tab(ai_provider, header, h.header_html)
+
+            # ------------------------------------------------------------------
             with gr.Tab("Guida", id="info"), gr.Row(equal_height=False):
                 with gr.Column(scale=6):
                     gr.Markdown(GUIDE)
@@ -295,6 +311,7 @@ def build_app() -> gr.Blocks:
                     gr.Button("Aggiorna stato", size="sm").click(h.status_html, outputs=status, api_visibility="private")
 
         demo.load(h.header_html, outputs=header, api_visibility="private")
+        demo.load(sh.snapshot, outputs=settings_tab["snapshot_outputs"], api_visibility="private")
         # Tools open in a working state: the example place is already computed.
         demo.load(lambda: h.coordinate_tool(EXAMPLE_PLACE, False), outputs=[coord_card, coord_map, coord_links], api_visibility="private")
         demo.load(

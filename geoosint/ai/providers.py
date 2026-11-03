@@ -1,15 +1,13 @@
-"""AI provider registry: configuration model, ready-made templates and dispatch.
+"""AI provider configuration: the data model, ready-made templates and key resolution.
 
-A provider is one API endpoint the arbiter can call. Three protocols are
-supported (``kind``):
+A provider is one LLM endpoint the arbiter can call. Calls go through LiteLLM,
+so ``kind`` is a LiteLLM provider prefix (``gemini``, ``anthropic``, ``openai``,
+``openrouter``, ``ollama_chat``...) and any provider LiteLLM supports works.
 
-* ``gemini``    Google Gemini via ``google-genai`` (optional Google Search grounding)
-* ``anthropic`` Anthropic Claude via the official ``anthropic`` SDK (optional web search)
-* ``openai``    any OpenAI-compatible Chat Completions endpoint: OpenAI, OpenRouter,
-                Mistral, Groq, Ollama, LM Studio, vLLM...
-
-The API key can be stored with the provider or read from an environment
-variable (``api_key_env``), so secrets can stay out of the settings file.
+The API key can be stored with the provider, read from a named environment
+variable (``api_key_env``) or, if both are empty, from the provider's standard
+variable (``GEMINI_API_KEY``, ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``...),
+which LiteLLM picks up on its own.
 """
 
 from __future__ import annotations
@@ -19,16 +17,24 @@ import re
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-from ..models import AiVerdict
-
-KINDS: dict[str, str] = {
-    "gemini": "Google Gemini",
+# The most common LiteLLM providers, shown first in the UI. Any other LiteLLM prefix is accepted.
+COMMON_KINDS: dict[str, str] = {
+    "gemini": "Google Gemini (AI Studio)",
     "anthropic": "Anthropic Claude",
-    "openai": "Compatibile OpenAI",
+    "openai": "OpenAI o compatibile OpenAI",
+    "openrouter": "OpenRouter",
+    "mistral": "Mistral",
+    "groq": "Groq",
+    "xai": "xAI Grok",
+    "deepseek": "DeepSeek",
+    "azure": "Azure OpenAI",
+    "vertex_ai": "Google Vertex AI",
+    "bedrock": "AWS Bedrock",
+    "ollama_chat": "Ollama (locale)",
+    "lm_studio": "LM Studio (locale)",
 }
-# Protocols that refuse to work without a key (local OpenAI-compatible servers usually need none).
-KEY_REQUIRED = {"gemini", "anthropic"}
-SEARCH_CAPABLE = {"gemini", "anthropic"}
+# Local servers usually run without a key.
+NO_KEY_KINDS = {"ollama", "ollama_chat", "lm_studio", "hosted_vllm", "llamafile"}
 
 
 @dataclass(frozen=True)
@@ -43,21 +49,19 @@ class ProviderConfig:
     web_search: bool = False
     enabled: bool = True
 
-    # -- (de)serialisation ------------------------------------------------
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProviderConfig:
         known = {f.name for f in fields(cls)}
-        clean = {k: v for k, v in data.items() if k in known}
+        clean: dict[str, Any] = {k: v for k, v in data.items() if k in known}
         for key in ("id", "name", "kind", "model", "base_url", "api_key", "api_key_env"):
             if key in clean:
                 clean[key] = str(clean[key] or "").strip()
         for key in ("web_search", "enabled"):
             if key in clean:
                 clean[key] = bool(clean[key])
-        if clean.get("kind") not in KINDS:
-            clean["kind"] = "openai"
-        clean.setdefault("id", slugify(clean.get("name", "")) or "provider")
-        clean.setdefault("name", clean["id"])
+        clean["kind"] = clean.get("kind") or "openai"
+        clean["id"] = slugify(clean.get("id") or clean.get("name") or "") or "provider"
+        clean["name"] = clean.get("name") or clean["id"]
         return cls(**clean)
 
     def to_dict(self, include_secret: bool = True) -> dict[str, Any]:
@@ -66,61 +70,74 @@ class ProviderConfig:
             data["api_key"] = ""
         return data
 
-    # -- helpers ----------------------------------------------------------
     @property
     def kind_label(self) -> str:
-        return KINDS.get(self.kind, self.kind)
+        return COMMON_KINDS.get(self.kind, self.kind)
 
     @property
-    def supports_search(self) -> bool:
-        return self.kind in SEARCH_CAPABLE
+    def litellm_model(self) -> str:
+        """Model name in LiteLLM's ``provider/model`` form."""
+        model = self.model.strip()
+        return model if model.startswith(self.kind + "/") else f"{self.kind}/{model}"
 
     def resolved_key(self) -> str | None:
-        """Stored key, then the named environment variable, then the provider's standard variable."""
         if self.api_key:
             return self.api_key
-        names = [self.api_key_env] if self.api_key_env else []
-        names += STANDARD_KEY_ENV.get(self.kind, [])
-        for name in names:
-            value = os.getenv(name, "").strip()
-            if value:
-                return value
-        return None
+        if self.api_key_env:
+            return os.getenv(self.api_key_env, "").strip() or None
+        return None  # LiteLLM falls back to the provider's standard variable
+
+    def missing_env_keys(self) -> list[str]:
+        """Standard variables LiteLLM would need when no key is configured here."""
+        if self.resolved_key() or self.kind in NO_KEY_KINDS or not self.model:
+            return []
+        try:
+            import litellm
+
+            info = litellm.validate_environment(model=self.litellm_model, api_base=self.base_url or None)
+        except Exception:
+            return []
+        return [] if info.get("keys_in_environment") else list(info.get("missing_keys") or [])
 
     def key_source(self) -> str:
         if self.api_key:
             return f"salvata (…{self.api_key[-4:]})" if len(self.api_key) > 8 else "salvata"
-        for name in ([self.api_key_env] if self.api_key_env else []) + STANDARD_KEY_ENV.get(self.kind, []):
-            if os.getenv(name, "").strip():
-                return f"da ${name}"
-        return "assente" if self.kind in KEY_REQUIRED else "non necessaria"
+        if self.api_key_env:
+            return f"da ${self.api_key_env}" + ("" if os.getenv(self.api_key_env, "").strip() else " (non impostata)")
+        if self.kind in NO_KEY_KINDS:
+            return "non necessaria"
+        missing = self.missing_env_keys()
+        return f"assente ({' o '.join(missing)})" if missing else "dalla variabile d'ambiente standard"
+
+    def problem(self) -> str:
+        """Why this provider cannot run, or an empty string."""
+        if not self.enabled:
+            return "disattivato"
+        if not self.model:
+            return "nessun modello impostato"
+        if self.api_key_env and not self.api_key and not os.getenv(self.api_key_env, "").strip():
+            return f"variabile ${self.api_key_env} non impostata"
+        missing = self.missing_env_keys()
+        if missing:
+            return "chiave API assente"
+        return ""
 
     def is_ready(self) -> bool:
-        return self.enabled and bool(self.model) and (self.kind not in KEY_REQUIRED or bool(self.resolved_key()))
+        return not self.problem()
 
 
-STANDARD_KEY_ENV: dict[str, list[str]] = {
-    "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-    "anthropic": ["ANTHROPIC_API_KEY"],
-    "openai": [],
-}
-
-# Ready-made starting points shown in the "new provider" form.
+# Ready-made starting points for the "new provider" form.
 TEMPLATES: dict[str, dict[str, Any]] = {
     "Google Gemini": {"kind": "gemini", "model": "gemini-2.5-flash", "web_search": True},
     "Anthropic Claude": {"kind": "anthropic", "model": "claude-opus-5-5", "web_search": True},
-    "OpenAI": {"kind": "openai", "base_url": "https://api.openai.com/v1", "model": "gpt-4.1-mini", "api_key_env": "OPENAI_API_KEY"},
-    "OpenRouter": {"kind": "openai", "base_url": "https://openrouter.ai/api/v1", "model": "", "api_key_env": "OPENROUTER_API_KEY"},
-    "Mistral": {
-        "kind": "openai",
-        "base_url": "https://api.mistral.ai/v1",
-        "model": "pixtral-large-latest",
-        "api_key_env": "MISTRAL_API_KEY",
-    },
-    "Groq": {"kind": "openai", "base_url": "https://api.groq.com/openai/v1", "model": "", "api_key_env": "GROQ_API_KEY"},
-    "Ollama (locale)": {"kind": "openai", "base_url": "http://localhost:11434/v1", "model": "qwen2.5vl"},
-    "LM Studio (locale)": {"kind": "openai", "base_url": "http://localhost:1234/v1", "model": ""},
-    "Personalizzato (compatibile OpenAI)": {"kind": "openai", "base_url": "", "model": ""},
+    "OpenAI": {"kind": "openai", "model": "gpt-4.1-mini"},
+    "OpenRouter": {"kind": "openrouter", "model": ""},
+    "Mistral": {"kind": "mistral", "model": "mistral-medium-latest"},
+    "Groq": {"kind": "groq", "model": ""},
+    "xAI Grok": {"kind": "xai", "model": "", "web_search": True},
+    "Ollama (locale)": {"kind": "ollama_chat", "base_url": "http://localhost:11434", "model": "qwen2.5vl"},
+    "LM Studio (locale)": {"kind": "lm_studio", "base_url": "http://localhost:1234/v1", "model": ""},
+    "Endpoint compatibile OpenAI": {"kind": "openai", "base_url": "https://", "model": ""},
 }
 
 
@@ -128,76 +145,22 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:40]
 
 
-def default_providers(gemini_model: str = "gemini-2.5-flash", gemini_search: bool = True) -> tuple[ProviderConfig, ...]:
-    """Provider list used until the user saves their own (keeps the .env-only setup working)."""
-    return (ProviderConfig(id="gemini", name="Google Gemini", kind="gemini", model=gemini_model, web_search=gemini_search),)
-
-
-# ---------------------------------------------------------------------------
-# Dispatch
-# ---------------------------------------------------------------------------
-
-
-def analyze(
-    provider: ProviderConfig,
-    image_path: str,
-    context: str,
-    timeout_s: int = 120,
-    model: str | None = None,
-    use_search: bool | None = None,
-    api_key: str | None = None,
-) -> AiVerdict:
-    """Run the arbiter on ``provider``; ``model``/``use_search``/``api_key`` override it for one call."""
-    key = api_key or provider.resolved_key()
-    mdl = (model or provider.model or "").strip()
-    search = provider.web_search if use_search is None else use_search
-    if not mdl:
-        return AiVerdict(error=f"Provider «{provider.name}»: nessun modello impostato.")
-    if provider.kind == "gemini":
-        from . import gemini
-
-        return gemini.analyze(image_path, context, key, mdl, use_search=search, timeout_s=timeout_s, base_url=provider.base_url)
-    if provider.kind == "anthropic":
-        from . import anthropic_provider
-
-        return anthropic_provider.analyze(image_path, context, key, mdl, use_search=search, timeout_s=timeout_s, base_url=provider.base_url)
-    from . import openai_compat
-
-    return openai_compat.analyze(image_path, context, key, mdl, base_url=provider.base_url, timeout_s=timeout_s)
-
-
-def list_models(provider: ProviderConfig, timeout_s: int = 20, api_key: str | None = None) -> list[str]:
-    """Ask the endpoint which models it offers. Raises on authentication or network errors."""
-    key = api_key or provider.resolved_key()
-    if provider.kind in KEY_REQUIRED and not key:
-        raise ValueError("chiave API assente")
-    if provider.kind == "gemini":
-        from . import gemini
-
-        return gemini.list_models(key, timeout_s, provider.base_url)
-    if provider.kind == "anthropic":
-        from . import anthropic_provider
-
-        return anthropic_provider.list_models(key, timeout_s, provider.base_url)
-    from . import openai_compat
-
-    return openai_compat.list_models(key, timeout_s, provider.base_url)
-
-
-def test_connection(provider: ProviderConfig, timeout_s: int = 20, api_key: str | None = None) -> tuple[bool, str, list[str]]:
-    """Check credentials and endpoint by listing models; never raises."""
-    from .common import redact
-
-    key = api_key or provider.resolved_key()
+def known_kinds() -> list[str]:
+    """Common providers first, then every other provider LiteLLM knows (if installed)."""
+    kinds = list(COMMON_KINDS)
     try:
-        models = list_models(provider, timeout_s, api_key=key)
-    except ImportError as exc:
-        return False, f'Pacchetto mancante: {exc.name or exc}. Installa gli extra con pip install -e ".[ai]".', []
-    except Exception as exc:
-        return False, redact(str(exc), key)[:400] or type(exc).__name__, []
-    if not models:
-        return True, "Connessione riuscita, ma l'endpoint non ha elencato modelli.", []
-    note = ""
-    if provider.model and provider.model not in models:
-        note = f" Attenzione: il modello «{provider.model}» non è tra quelli elencati."
-    return True, f"Connessione riuscita: {len(models)} modelli disponibili.{note}", models
+        import litellm
+
+        extra = sorted({str(getattr(p, "value", p)) for p in litellm.provider_list} - set(kinds))
+        kinds += extra
+    except ImportError:
+        pass
+    return kinds
+
+
+def default_providers(gemini_model: str = "gemini-2.5-flash", gemini_search: bool = True) -> tuple[ProviderConfig, ...]:
+    """Provider list used until the user saves their own: keeps the .env-only setup working."""
+    key_env = "GOOGLE_API_KEY" if os.getenv("GOOGLE_API_KEY") and not os.getenv("GEMINI_API_KEY") else ""
+    return (
+        ProviderConfig(id="gemini", name="Google Gemini", kind="gemini", model=gemini_model, web_search=gemini_search, api_key_env=key_env),
+    )

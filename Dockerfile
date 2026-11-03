@@ -3,7 +3,7 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-    GRADIO_SERVER_NAME=0.0.0.0 REPORTS_DIR=/data/reports
+    GRADIO_SERVER_NAME=0.0.0.0 REPORTS_DIR=/data/reports GEOOSINT_CONFIG=/data/settings.json
 
 # Librerie di sistema richieste da OpenCV (EasyOCR / ultralytics)
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
