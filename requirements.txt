@@ -1,11 +1,4 @@
-torch==2.11.0
-torchvision==0.26.0
-pillow==12.1.1
-transformers==5.4.0
-pandas==3.0.2
-numpy==2.4.4
-geopy==2.4.1
-folium==0.20.0
-gradio==6.10.0
-easyocr==1.7.2
-wandb==0.25.1
+# Installazione completa (tutti i motori). Per un'installazione modulare usa gli extra:
+#   pip install -e .            -> solo core (dashboard, metadati, forense, coordinate, sole, report)
+#   pip install -e ".[all]"     -> core + GeoCLIP + OCR + YOLO + Gemini + HEIC
+-e .[all]

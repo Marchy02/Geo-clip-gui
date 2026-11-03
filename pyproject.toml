@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geoosint"
+dynamic = ["version"]
+description = "Coltellino svizzero OSINT per immagini: geolocalizzazione (GeoCLIP + Gemini), metadati, forense, OCR, cronolocalizzazione, pivot e report."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Marchy02" }, { name = "Vicente Vivanco (GeoCLIP)" }]
+keywords = ["osint", "geolocation", "geoclip", "exif", "forensics", "gradio", "chronolocation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Security",
+]
+# Core: dashboard, metadata, forensics, coordinates, sun, reports — no GPU/ML stack needed.
+dependencies = [
+    "pillow>=10.1",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "folium>=0.17",
+    "gradio>=6.0",
+    "python-dotenv>=1.0",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+geoclip = ["torch>=2.1", "transformers>=4.40"]
+ocr = ["easyocr>=1.7.2"]
+yolo = ["ultralytics>=8.3"]
+ai = ["google-genai>=1.0"]
+heif = ["pillow-heif>=0.16"]
+ml = ["geoosint[geoclip,ocr,yolo]"]
+all = ["geoosint[ml,ai,heif]"]
+train = ["geoosint[geoclip]", "torchvision", "tqdm", "geopy", "wandb"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+geoosint = "geoosint.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Marchy02/Geo-clip-gui"
+"GeoCLIP originale" = "https://github.com/VicenteVivan/geo-clip"
+
+[tool.setuptools.dynamic]
+version = { attr = "geoosint.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["geoosint*", "geoclip*"]
+
+[tool.setuptools.package-data]
+geoclip = ["model/gps_gallery/*.csv", "model/weights/*.pth", "images/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning:folium.*"]

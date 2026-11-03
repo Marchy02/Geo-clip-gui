@@ -1,0 +1,15 @@
+.git
+.venv*
+venv
+__pycache__
+*.pyc
+.env
+reports
+cases
+geoclip/snapshots
+geoclip/wandb
+notebooks
+build
+dist
+*.egg-info
+tests

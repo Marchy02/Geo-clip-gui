@@ -1,65 +1,173 @@
+"""GeoCLIP: CLIP-inspired alignment between images and GPS locations.
+
+This is the neural engine used by the OSINT toolkit.  Compared with the
+research code it was forked from, this module:
+
+* never touches hardcoded cluster paths: snapshots are resolved relative to
+  the package and weights are loaded with ``map_location`` so CPU-only
+  machines work out of the box;
+* exposes *presets* that pair a GPS gallery with the matching weights
+  (``"world"`` = original MP-16 model, ``"ukraine_russia"`` = fine-tuned
+  model + regional gallery);
+* accepts a file path, a ``PIL.Image`` or raw bytes in :meth:`predict`.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
 import os
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
+from PIL import Image
+
 from .image_encoder import ImageEncoder
 from .location_encoder import LocationEncoder
-from .misc import load_gps_data, file_dir
+from .misc import file_dir, load_gps_data
 
-from PIL import Image
-from torchvision.transforms import ToPILImage
+log = logging.getLogger(__name__)
+
+ImageInput = str | os.PathLike | Image.Image | bytes
+
+WEIGHTS_DIR = Path(file_dir) / "weights"
+GALLERY_DIR = Path(file_dir) / "gps_gallery"
+SNAPSHOTS_DIR = Path(file_dir).parent / "snapshots"
+
+
+@dataclass(frozen=True)
+class Preset:
+    """A GPS gallery plus the weights it should be used with."""
+
+    gallery: str
+    timestamp: str | None
+    description: str
+
+
+PRESETS: dict[str, Preset] = {
+    "world": Preset(
+        gallery="coordinates_100K.csv",
+        timestamp=None,
+        description="Modello originale GeoCLIP (MP-16), galleria mondiale da 100K punti",
+    ),
+    "ukraine_russia": Preset(
+        gallery="coordinates_ukraine_russia.csv",
+        timestamp="09-20-09-11",
+        description="Modello fine-tuned su Ucraina/Russia, galleria regionale",
+    ),
+}
+DEFAULT_PRESET = "world"
+
+
+def _torch_load(path: Path):
+    """Load a tensor/state-dict on CPU, safely when supported."""
+    try:
+        return torch.load(path, map_location="cpu", weights_only=True)
+    except TypeError:  # torch < 1.13 has no weights_only
+        return torch.load(path, map_location="cpu")
+
+
+def _open_image(image: ImageInput) -> Image.Image:
+    if isinstance(image, Image.Image):
+        img = image
+    elif isinstance(image, (bytes, bytearray)):
+        img = Image.open(io.BytesIO(image))
+    else:
+        img = Image.open(image)
+    return img.convert("RGB")
+
+
+def default_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
 
 class GeoCLIP(nn.Module):
-    def __init__(self, timestamp=None, epoch_num=0, epochs=False, from_pretrained=True, queue_size=4096):
+    def __init__(
+        self,
+        timestamp: str | None = None,
+        epoch_num: int = 0,
+        epochs: bool = False,
+        from_pretrained: bool = True,
+        queue_size: int = 4096,
+        preset: str | None = None,
+        gallery: str | os.PathLike | None = None,
+    ):
+        """
+        Args:
+            timestamp: suffix of a fine-tuned weight set (e.g. ``"09-20-09-11"``; ``":"`` is accepted too).
+                Overrides the preset's weights.
+            epoch_num / epochs: load a training snapshot from ``geoclip/snapshots``.
+            from_pretrained: load weights (disable for training from scratch).
+            queue_size: size of the GPS queue used during training.
+            preset: ``"world"`` (default) or ``"ukraine_russia"``.
+            gallery: explicit GPS gallery CSV (file name inside ``gps_gallery``
+                or absolute path). Overrides the preset's gallery.
+        """
         super().__init__()
+        preset_name = preset or DEFAULT_PRESET
+        if preset_name not in PRESETS:
+            raise ValueError(f"Preset sconosciuto '{preset_name}'. Disponibili: {', '.join(PRESETS)}")
+        self.preset = PRESETS[preset_name]
+        self.preset_name = preset_name
+
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.image_encoder = ImageEncoder()
-        self.location_encoder = LocationEncoder()
-        self.timestamp = timestamp
+        self.location_encoder = LocationEncoder(from_pretrained=False)
+        self.timestamp = timestamp if timestamp is not None else self.preset.timestamp
 
-        self.gps_gallery = load_gps_data(os.path.join(file_dir, "gps_gallery", "coordinates_ukraine_russia.csv"))
+        gallery_path = Path(gallery) if gallery else Path(self.preset.gallery)
+        if not gallery_path.is_absolute():
+            gallery_path = GALLERY_DIR / gallery_path
+        self.gps_gallery = load_gps_data(str(gallery_path))
         self._initialize_gps_queue(queue_size)
 
+        self.weights_folder = str(WEIGHTS_DIR)
         if from_pretrained:
-            self.weights_folder = os.path.join(file_dir, "weights")
             self._load_weights(epoch_num=epoch_num, epochs=epochs)
 
         self.device = "cpu"
 
     def to(self, device):
-        self.device = device
+        self.device = str(device)
         self.image_encoder.to(device)
         self.location_encoder.to(device)
         self.logit_scale.data = self.logit_scale.data.to(device)
         return super().to(device)
 
-    def _load_weights(self, epoch_num=0, epochs=False):
-        
-        if self.timestamp:
-            if epochs:
-                image_encoder_path = f"image_encoder_mlp_weights_{self.timestamp}.pth"
-                location_encoder_path = f"location_encoder_weights_{self.timestamp}.pth"
-                logit_scale_path = f"logit_scale_weights_{self.timestamp}.pth"
-            else:
-                image_encoder_path = f"fine_tuned_image_encoder_mlp_weights_{self.timestamp}.pth"
-                location_encoder_path = f"fine_tuned_location_encoder_weights_{self.timestamp}.pth"
-                logit_scale_path = f"fine_tuned_logit_scale_weights_{self.timestamp}.pth"
-        else:
-            image_encoder_path = "image_encoder_mlp_weights.pth"
-            location_encoder_path = "location_encoder_weights.pth"
-            logit_scale_path = "logit_scale_weights.pth"
+    def _weight_names(self, epochs: bool) -> tuple[str, str, str]:
+        if not self.timestamp:
+            return ("image_encoder_mlp_weights.pth", "location_encoder_weights.pth", "logit_scale_weights.pth")
+        prefix = "" if epochs else "fine_tuned_"
+        # File names use "-" instead of ":" (invalid on Windows); accept both spellings.
+        ts = self.timestamp.replace(":", "-")
+        return (
+            f"{prefix}image_encoder_mlp_weights_{ts}.pth",
+            f"{prefix}location_encoder_weights_{ts}.pth",
+            f"{prefix}logit_scale_weights_{ts}.pth",
+        )
 
-        print(f"Image Encoder Path: {image_encoder_path}\nLocation Encoder Path:{location_encoder_path}\nLogit Scale Path: {logit_scale_path}")
+    def _load_weights(self, epoch_num: int = 0, epochs: bool = False):
+        folder = SNAPSHOTS_DIR / f"epoch_{epoch_num}" if epochs else WEIGHTS_DIR
+        paths = [folder / name for name in self._weight_names(epochs)]
+        if not all(p.exists() for p in paths) and self.timestamp and ":" in self.timestamp:
+            # Legacy snapshots saved with ":" in the name (Linux only).
+            paths = [p.with_name(p.name.replace(self.timestamp.replace(":", "-"), self.timestamp)) for p in paths]
+        missing = [str(p) for p in paths if not p.exists()]
+        if missing:
+            raise FileNotFoundError("Pesi GeoCLIP mancanti:\n  " + "\n  ".join(missing))
 
-        if epochs:
-            self.image_encoder.mlp.load_state_dict(torch.load(f"/home/ray/mnt/cluster_storage/ai_geolocation/geo-clip/geoclip/snapshots/epoch_{epoch_num}/{image_encoder_path}"))
-            self.location_encoder.load_state_dict(torch.load(f"/home/ray/mnt/cluster_storage/ai_geolocation/geo-clip/geoclip/snapshots/epoch_{epoch_num}/{location_encoder_path}"))
-            self.logit_scale = nn.Parameter(torch.load(f"/home/ray/mnt/cluster_storage/ai_geolocation/geo-clip/geoclip/snapshots/epoch_{epoch_num}/{logit_scale_path}"))
-        else:
-            self.image_encoder.mlp.load_state_dict(torch.load(f"{self.weights_folder}/{image_encoder_path}"))
-            self.location_encoder.load_state_dict(torch.load(f"{self.weights_folder}/{location_encoder_path}"))
-            self.logit_scale = nn.Parameter(torch.load(f"{self.weights_folder}/{logit_scale_path}"))
+        log.info("GeoCLIP weights: %s", ", ".join(p.name for p in paths))
+        self.image_encoder.mlp.load_state_dict(_torch_load(paths[0]))
+        self.location_encoder.load_state_dict(_torch_load(paths[1]))
+        self.logit_scale = nn.Parameter(_torch_load(paths[2]))
 
     def _initialize_gps_queue(self, queue_size):
         self.queue_size = queue_size
@@ -69,73 +177,52 @@ class GeoCLIP(nn.Module):
 
     @torch.no_grad()
     def dequeue_and_enqueue(self, gps):
-        """ Update GPS queue
+        """Update the GPS queue.
 
         Args:
             gps (torch.Tensor): GPS tensor of shape (batch_size, 2)
         """
         gps_batch_size = gps.shape[0]
         gps_ptr = int(self.gps_queue_ptr)
-        
+
         assert self.queue_size % gps_batch_size == 0, f"Queue size {self.queue_size} should be divisible by batch size {gps_batch_size}"
 
-        # Replace the GPS from ptr to ptr+gps_batch_size (dequeue and enqueue)
-        self.gps_queue[:, gps_ptr:gps_ptr + gps_batch_size] = gps.t()
-        gps_ptr = (gps_ptr + gps_batch_size) % self.queue_size  # move pointer
+        self.gps_queue[:, gps_ptr : gps_ptr + gps_batch_size] = gps.t()
+        gps_ptr = (gps_ptr + gps_batch_size) % self.queue_size
         self.gps_queue_ptr[0] = gps_ptr
 
     def get_gps_queue(self):
         return self.gps_queue.t()
-                                             
+
     def forward(self, image, location):
-        """ GeoCLIP's forward pass
+        """GeoCLIP's forward pass.
 
         Args:
             image (torch.Tensor): Image tensor of shape (n, 3, 224, 224)
             location (torch.Tensor): GPS location tensor of shape (m, 2)
 
         Returns:
-            logits_per_image (torch.Tensor): Logits per image of shape (n, m)
+            torch.Tensor: logits per image of shape (n, m)
         """
-
-        # Compute Features
-        image_features = self.image_encoder(image)
-        location_features = self.location_encoder(location)
-        logit_scale = self.logit_scale.exp()
-        
-        # Normalize features
-        image_features = F.normalize(image_features, dim=1)
-        location_features = F.normalize(location_features, dim=1)
-        
-        # Cosine similarity (Image Features & Location Features)
-        logits_per_image = logit_scale * (image_features @ location_features.t())
-
-        return logits_per_image
+        image_features = F.normalize(self.image_encoder(image), dim=1)
+        location_features = F.normalize(self.location_encoder(location), dim=1)
+        return self.logit_scale.exp() * (image_features @ location_features.t())
 
     @torch.no_grad()
-    def predict(self, image_path, top_k):
-        """ Given an image, predict the top k GPS coordinates
+    def predict(self, image: ImageInput, top_k: int = 5):
+        """Predict the ``top_k`` most likely GPS coordinates for an image.
 
         Args:
-            image_path (str): Path to the image
-            top_k (int): Number of top predictions to return
+            image: path, ``PIL.Image`` or raw bytes.
+            top_k: number of predictions to return.
 
         Returns:
-            top_pred_gps (torch.Tensor): Top k GPS coordinates of shape (k, 2)
-            top_pred_prob (torch.Tensor): Top k GPS probabilities of shape (k,)
+            (top_pred_gps, top_pred_prob): tensors of shape (k, 2) and (k,).
         """
-        image = Image.open(image_path)
-        image = self.image_encoder.preprocess_image(image)
-        image = image.to(self.device)
-
+        pixel_values = self.image_encoder.preprocess_image(_open_image(image)).to(self.device)
         gps_gallery = self.gps_gallery.to(self.device)
 
-        logits_per_image = self.forward(image, gps_gallery)
-        probs_per_image = logits_per_image.softmax(dim=-1).cpu()
-
-        # Get top k predictions
-        top_pred = torch.topk(probs_per_image, top_k, dim=1)
-        top_pred_gps = self.gps_gallery[top_pred.indices[0]]
-        top_pred_prob = top_pred.values[0]
-
-        return top_pred_gps, top_pred_prob
+        probs = self.forward(pixel_values, gps_gallery).softmax(dim=-1).cpu()
+        top_k = max(1, min(int(top_k), probs.shape[1]))
+        top_pred = torch.topk(probs, top_k, dim=1)
+        return self.gps_gallery[top_pred.indices[0]], top_pred.values[0]
