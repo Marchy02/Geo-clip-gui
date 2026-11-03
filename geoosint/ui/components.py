@@ -212,7 +212,9 @@ def ai_card(ai: AiVerdict | None) -> str:
 
 def _finding(text: str) -> str:
     low = text.lower()
-    level = "bad" if low.startswith("coordinate gps presenti") or "discordanza" in low or "generato da ia" in low or "c2pa" in low else "warn"
+    level = (
+        "bad" if low.startswith("coordinate gps presenti") or "discordanza" in low or "generato da ia" in low or "c2pa" in low else "warn"
+    )
     if "nessuna anomalia" in low:
         level = "ok"
     return notice(text, level)
