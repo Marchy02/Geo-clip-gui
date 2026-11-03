@@ -40,9 +40,10 @@ class AnalysisOptions:
     geoclip_preset: str | None = None
     top_k: int | None = None
     ocr_languages: list[str] | None = None
-    gemini_api_key: str | None = None
-    gemini_model: str | None = None
-    gemini_search: bool | None = None
+    ai_provider: str | None = None  # provider id; None = the active provider
+    ai_model: str | None = None  # overrides the provider's model for this run
+    ai_api_key: str | None = None  # session-only key, never saved
+    ai_search: bool | None = None
     analyst_notes: str = ""
 
 
@@ -159,27 +160,30 @@ class Pipeline:
                     g.address = short_label(reverse_geocode(g.lat, g.lon, zoom=10))
 
         if opts.ai:
-            tick(0.72, "Arbitro IA (Gemini)")
+            provider = s.provider(opts.ai_provider)
+            tick(0.72, f"Arbitro IA ({provider.name if provider else 'nessun provider'})")
             with self._step(report, "Arbitro IA") as st:
-                from .ai import gemini
+                from .ai import arbiter
+                from .ai.common import build_context
 
-                key = opts.gemini_api_key or s.gemini_api_key
-                if not key:
-                    raise EngineUnavailable("Gemini: chiave API non configurata")
-                model = opts.gemini_model or s.gemini_model
-                context = gemini.build_context(report.geoclip, report.ocr, report.detections, report.metadata, opts.analyst_notes)
-                report.ai = gemini.analyze(
+                if provider is None:
+                    raise EngineUnavailable("nessun provider IA attivo: configurane uno in Impostazioni > Provider IA")
+                if not opts.ai_api_key and provider.problem():
+                    raise EngineUnavailable(f"{provider.name}: {provider.problem()}")
+                context = build_context(report.geoclip, report.ocr, report.detections, report.metadata, opts.analyst_notes)
+                report.ai = arbiter.analyze(
+                    provider,
                     img,
                     context,
-                    api_key=key,
-                    model=model,
-                    use_search=s.gemini_search if opts.gemini_search is None else opts.gemini_search,
-                    timeout_s=s.gemini_timeout_s,
+                    timeout_s=s.ai_timeout_s,
+                    model=opts.ai_model,
+                    use_search=opts.ai_search,
+                    api_key=opts.ai_api_key,
                 )
                 if report.ai.error:
                     st.status, st.detail = "error", report.ai.error
                 else:
-                    st.detail = model
+                    st.detail = f"{provider.name} · {report.ai.model}"
 
         tick(0.95, "Fusione dei risultati")
         report.final = fuse(report)

@@ -19,7 +19,7 @@ class LocationSource(str, Enum):
     def label(self) -> str:
         return {
             "exif": "GPS nei metadati EXIF",
-            "ai": "Arbitro IA (Gemini)",
+            "ai": "Arbitro IA",
             "geoclip": "GeoCLIP (stima statistica)",
             "manual": "Inserimento manuale",
         }[self.value]

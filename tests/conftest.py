@@ -6,13 +6,15 @@ from PIL import ExifTags, Image, ImageDraw
 
 # Tests must never hit the network.
 os.environ["ONLINE_LOOKUPS"] = "false"
-os.environ.pop("GEMINI_API_KEY", None)
-os.environ.pop("GOOGLE_API_KEY", None)
+for _var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEOOSINT_SETTINGS_LOCKED", "AI_PROVIDER"):
+    os.environ.pop(_var, None)
 
 
 @pytest.fixture(autouse=True)
 def _isolated_reports(tmp_path, monkeypatch):
     monkeypatch.setenv("REPORTS_DIR", str(tmp_path / "reports"))
+    # Never read or write the user's real settings file.
+    monkeypatch.setenv("GEOOSINT_CONFIG", str(tmp_path / "config" / "settings.json"))
     from geoosint.config import get_settings
 
     get_settings.cache_clear()

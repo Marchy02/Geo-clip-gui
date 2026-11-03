@@ -6,7 +6,7 @@ Toolkit OSINT per la geolocalizzazione e la verifica di immagini.
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Da una foto a una posizione **verificabile**: GeoCLIP stima dove è stata scattata, un arbitro IA (Gemini)
+Da una foto a una posizione **verificabile**: GeoCLIP stima dove è stata scattata, un arbitro IA (Gemini, Claude, OpenAI, Ollama… a scelta)
 incrocia testi, oggetti e metadati, e gli strumenti forensi e di pivot ti aiutano a **confermare o smentire**.
 Tutto da una dashboard web o da riga di comando, con report esportabili.
 
@@ -23,7 +23,8 @@ Tutto da una dashboard web o da riga di comando, con report esportabili.
 | Area | Cosa fa |
 |---|---|
 | **Geolocalizzazione** | GeoCLIP top-k con dispersione dei candidati, preset *Mondo* o *Ucraina/Russia* (fine-tuned), reverse geocoding OpenStreetMap delle zone stimate |
-| **Arbitro IA** | Gemini riceve immagine + GeoCLIP + OCR + oggetti + metadati + tue note; risponde con luogo, confidenza, indizi, ragionamento, ipotesi alternative e **fonti web citate** (Google Search grounding) |
+| **Arbitro IA** | Un modello linguistico a tua scelta (Gemini, Claude, OpenAI, OpenRouter, Mistral, Ollama in locale… tramite [LiteLLM](https://github.com/BerriAI/litellm)) riceve immagine + GeoCLIP + OCR + oggetti + metadati + tue note; risponde con luogo, confidenza, indizi, ragionamento, ipotesi alternative e **fonti web citate** (ricerca web su Gemini e Claude) |
+| **Impostazioni** | Pannello nella dashboard: provider IA con chiavi, endpoint e modelli (prova connessione, elenco modelli), opzioni predefinite dei motori, import/export della configurazione |
 | **Verdetto ragionato** | Sceglie la fonte più affidabile (GPS EXIF, poi IA con prove, poi GeoCLIP), spiega il perché e segnala **discordanze** (es. GPS falsificato) |
 | **Metadati** | EXIF completo, GPS (altitudine, direzione, ora UTC), XMP, chunk PNG, profilo ICC, miniatura; osservazioni su editing, date modificate, seriali esposti, ricompressione social |
 | **Forense** | SHA-256/SHA-1/MD5 (catena di custodia), hash percettivi pHash/dHash/aHash, Error Level Analysis, mappa del rumore, stima qualità JPEG, **marker di immagini generate da IA** (C2PA, IPTC, Stable Diffusion/ComfyUI) |
@@ -65,7 +66,7 @@ pip install -r requirements.txt
 | `pip install -e .` | Core: dashboard, metadati, forense, coordinate, sole, confronto, privacy, report (niente GPU/ML) |
 | `pip install -e ".[geoclip]"` | + GeoCLIP (torch, transformers) |
 | `pip install -e ".[ocr,yolo]"` | + EasyOCR e YOLO |
-| `pip install -e ".[ai]"` | + arbitro Gemini |
+| `pip install -e ".[ai]"` | + arbitro IA (LiteLLM: Gemini, Claude, OpenAI, Ollama…) |
 | `pip install -e ".[heif]"` | + foto HEIC/HEIF di iPhone |
 | `pip install -e ".[all]"` | tutto quanto sopra |
 
@@ -73,22 +74,37 @@ pip install -r requirements.txt
 >
 > Al primo uso vengono scaricati automaticamente CLIP ViT-L/14 (~1,7 GB, da HuggingFace), i modelli EasyOCR e YOLOv8n.
 
-### Chiave Gemini (facoltativa, consigliata)
+### Provider IA (facoltativo, consigliato)
 
-Crea una chiave gratuita su [Google AI Studio](https://aistudio.google.com/apikey), poi:
+L'arbitro IA funziona con qualsiasi provider supportato da [LiteLLM](https://docs.litellm.ai/docs/providers).
+Il modo più semplice è la scheda **Impostazioni → Provider IA** della dashboard:
+
+1. scegli un modello predefinito (Google Gemini, Anthropic Claude, OpenAI, OpenRouter, Mistral, Groq, Ollama, LM Studio…)
+   oppure un endpoint compatibile OpenAI;
+2. incolla la chiave API, oppure indica il nome della variabile d'ambiente che la contiene;
+3. premi *Carica modelli* per scegliere il modello e *Prova connessione* per verificarlo;
+4. salva e, se vuoi, rendilo il provider predefinito.
+
+Nella scheda *Analisi* puoi poi cambiare provider, modello o chiave per una singola analisi (la chiave di sessione non viene salvata).
+
+Senza configurare nulla, resta valido il vecchio metodo: una chiave gratuita
+su [Google AI Studio](https://aistudio.google.com/apikey) in `.env`:
 
 ```bash
 cp .env.example .env    # e inserisci GEMINI_API_KEY=...
 ```
 
-In alternativa incollala nel campo *Chiave API Gemini* delle opzioni di analisi (non viene salvata).
+Allo stesso modo vengono lette le variabili standard degli altri provider (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`…).
+Per Ollama in locale non serve alcuna chiave: basta un modello che accetti immagini (es. `ollama pull qwen2.5vl`).
 
 ### Docker
 
 ```bash
 docker build -t geoosint .
-docker run -p 7860:7860 --env-file .env -v geoosint-cache:/root/.cache -v "$PWD/reports:/data/reports" geoosint
+docker run -p 7860:7860 --env-file .env -v geoosint-cache:/root/.cache -v geoosint-data:/data geoosint
 ```
+
+Report e impostazioni salvate dalla dashboard finiscono nel volume `/data`.
 
 ---
 
@@ -127,7 +143,7 @@ Aggiungi `--json` per un output leggibile da altri script. `python -m geoosint �
 
 ```
                 ┌─────────── Metadati (EXIF/XMP/GPS) ──────────┐
- immagine ──────┼─ Forense (hash, ELA, rumore, marker IA)      ├──► Arbitro IA (Gemini + Google Search)
+ immagine ──────┼─ Forense (hash, ELA, rumore, marker IA)      ├──► Arbitro IA (LLM a scelta + ricerca web)
                 ├─ GeoCLIP top-k ──► reverse geocoding OSM     │            │
                 ├─ OCR (testi) ────────────────────────────────┤            ▼
                 └─ YOLO (oggetti) ─────────────────────────────┘      Fusione → verdetto + affidabilità
@@ -156,13 +172,29 @@ tramite un *location encoder* a Random Fourier Features: restituisce una distrib
 
 ## Configurazione
 
-Tutte le impostazioni si leggono da variabili d'ambiente o `.env` (vedi [`.env.example`](.env.example)):
+Le impostazioni si leggono, in quest'ordine di priorità crescente:
+
+1. valori predefiniti;
+2. variabili d'ambiente o `.env` (vedi [`.env.example`](.env.example));
+3. il file salvato dalla scheda **Impostazioni** della dashboard.
+
+Il file è `~/.config/geoosint/settings.json` (Linux/macOS) o `%APPDATA%\GeoOSINT\settings.json` (Windows); la posizione
+si cambia con `GEOOSINT_CONFIG`. Può contenere chiavi API, quindi viene scritto leggibile solo dal proprietario.
+Dalla dashboard puoi esportarlo senza chiavi e reimportarlo su un'altra macchina; `geoosint status` mostra i provider configurati.
+
+> **Dashboard esposta in rete?** Chi la apre può cambiare provider e chiavi. Proteggila con `--auth utente:password`
+> oppure blocca le modifiche con `GEOOSINT_SETTINGS_LOCKED=true`.
 
 | Variabile | Default | Descrizione |
 |---|---|---|
-| `GEMINI_API_KEY` | — | Chiave Google AI Studio (anche `GOOGLE_API_KEY`) |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Modello Gemini |
-| `GEMINI_SEARCH` | `true` | Verifica online con Google Search |
+| `GEMINI_API_KEY` | — | Chiave Google AI Studio (anche `GOOGLE_API_KEY`) per il provider Gemini predefinito |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Modello del provider Gemini predefinito |
+| `GEMINI_SEARCH` | `true` | Ricerca web (Google Search) per il provider Gemini predefinito |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … | — | Chiavi standard lette da LiteLLM se il provider non ne ha una salvata |
+| `AI_PROVIDER` | `gemini` | Id del provider IA predefinito |
+| `AI_TIMEOUT` | `120` | Timeout dell'arbitro IA in secondi |
+| `GEOOSINT_CONFIG` | vedi sopra | Percorso del file delle impostazioni |
+| `GEOOSINT_SETTINGS_LOCKED` | `false` | `true` = impostazioni in sola lettura dalla dashboard |
 | `GEOCLIP_PRESET` | `world` | `world` o `ukraine_russia` |
 | `GEOCLIP_TOP_K` | `5` | Candidati GeoCLIP |
 | `OCR_LANGUAGES` | `en,it,de,fr,es` | Codici lingua EasyOCR |
@@ -178,15 +210,16 @@ Tutte le impostazioni si leggono da variabili d'ambiente o `.env` (vedi [`.env.e
 
 ```
 geoosint/            # il tool
-├── config.py        # impostazioni da env/.env
+├── config.py        # impostazioni da env/.env + file salvato
+├── user_config.py   # lettura/scrittura del file delle impostazioni
 ├── models.py        # strutture dati dei risultati
 ├── pipeline.py      # orchestrazione degli step + fusione
 ├── engines/         # GeoCLIP, EasyOCR, YOLO (caricamento lazy)
-├── ai/gemini.py     # arbitro IA
+├── ai/              # arbitro IA: prompt, provider, chiamate via LiteLLM
 ├── forensics/       # metadati, hash, ELA, rumore, JPEG, sanitizzazione
 ├── geo/             # coordinate, link, geocoding, sole
 ├── report/          # export JSON / Markdown / HTML
-├── ui/              # dashboard Gradio (tema, mappe, componenti, handler)
+├── ui/              # dashboard Gradio (tema, mappe, componenti, handler, impostazioni)
 └── cli.py           # riga di comando
 geoclip/             # motore neurale GeoCLIP (pesi, gallerie GPS, training)
 notebooks/           # notebook di fine-tuning

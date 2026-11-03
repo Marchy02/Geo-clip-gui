@@ -1,26 +1,20 @@
-"""LLM arbiter: Google Gemini cross-checks every clue and decides the location.
+"""Shared pieces of the AI arbiter: prompts, context building, image encoding, reply parsing.
 
-The model receives the image plus everything the other engines found
-(EXIF, OCR, objects, GeoCLIP candidates with their reverse-geocoded names)
-and must answer with a strict JSON object.  With Google Search grounding
-enabled it can verify shop names, landmarks and street signs online; the
-web sources it used are returned for the analyst to check.
+Every provider (Gemini, Anthropic, OpenAI-compatible) sends the same prompt and
+must answer with the same JSON object, so the verdict is comparable whichever
+model produced it.
 """
 
 from __future__ import annotations
 
 import io
 import json
-import logging
 import re
-from functools import lru_cache
 from typing import Any
 
 from PIL import Image
 
 from ..models import AiVerdict, Detection, GeoPoint, MetadataReport, OcrText
-
-log = logging.getLogger(__name__)
 
 MAX_SIDE = 2048
 
@@ -46,25 +40,6 @@ RESPONSE_SPEC = """Rispondi SOLO con un oggetto JSON valido (nessun testo fuori 
   "alternatives": [string]      // altre ipotesi plausibili, in ordine di probabilità
 }
 Scrivi i testi in italiano."""
-
-
-@lru_cache(maxsize=4)
-def _client(api_key: str, timeout_s: int):
-    from google import genai
-    from google.genai import types
-
-    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_s * 1000))
-
-
-def _image_part(image_path: str):
-    from google.genai import types
-
-    with Image.open(image_path) as img:
-        img = img.convert("RGB")
-        img.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=92)
-    return types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg")
 
 
 def build_context(
@@ -162,56 +137,29 @@ def verdict_from_dict(data: dict[str, Any], model: str = "") -> AiVerdict:
     )
 
 
-def _grounding_sources(response) -> list[dict[str, str]]:
-    sources: list[dict[str, str]] = []
+def encode_image(image_path: str) -> bytes:
+    """Return the image as JPEG bytes, downscaled so the longest side is at most MAX_SIDE."""
+    with Image.open(image_path) as img:
+        img = img.convert("RGB")
+        img.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
+
+
+def redact(message: str, secret: str | None) -> str:
+    """Remove an API key from an error message before it reaches the UI or the logs."""
+    if secret and secret in message:
+        message = message.replace(secret, "***")
+    return message
+
+
+def user_prompt(context: str) -> str:
+    return context + "\n\n" + RESPONSE_SPEC
+
+
+def verdict_from_text(text: str, model: str) -> AiVerdict:
     try:
-        for cand in response.candidates or []:
-            meta = getattr(cand, "grounding_metadata", None)
-            for chunk in getattr(meta, "grounding_chunks", None) or []:
-                web = getattr(chunk, "web", None)
-                if web and getattr(web, "uri", None):
-                    item = {"title": web.title or web.uri, "url": web.uri}
-                    if item not in sources:
-                        sources.append(item)
-    except Exception:  # pragma: no cover - SDK shape changes
-        log.debug("grounding metadata non leggibili", exc_info=True)
-    return sources
-
-
-def analyze(
-    image_path: str,
-    context: str,
-    api_key: str | None,
-    model: str,
-    use_search: bool = True,
-    timeout_s: int = 120,
-) -> AiVerdict:
-    if not api_key:
-        return AiVerdict(error="Chiave Gemini assente: impostala in .env (GEMINI_API_KEY) o nelle opzioni.")
-    try:
-        from google.genai import types
-    except ImportError:
-        return AiVerdict(error="Pacchetto google-genai non installato (pip install google-genai).")
-
-    config_kwargs: dict[str, Any] = {"temperature": 0.2, "system_instruction": SYSTEM_PROMPT}
-    if use_search:
-        config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-    else:
-        config_kwargs["response_mime_type"] = "application/json"
-
-    try:
-        response = _client(api_key, timeout_s).models.generate_content(
-            model=model,
-            contents=[_image_part(image_path), context + "\n\n" + RESPONSE_SPEC],
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
-        verdict = verdict_from_dict(parse_verdict(response.text or ""), model=model)
-        verdict.sources = _grounding_sources(response)
-        return verdict
+        return verdict_from_dict(parse_verdict(text or ""), model=model)
     except (ValueError, json.JSONDecodeError) as exc:
-        return AiVerdict(model=model, error=f"Risposta Gemini non in formato JSON: {exc}")
-    except Exception as exc:  # network, quota, invalid key...
-        message = str(exc)
-        if api_key and api_key in message:
-            message = message.replace(api_key, "***")
-        return AiVerdict(model=model, error=f"Errore API Gemini: {message[:500]}")
+        return AiVerdict(model=model, error=f"Risposta del modello non in formato JSON: {exc}")

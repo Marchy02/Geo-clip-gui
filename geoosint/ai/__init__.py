@@ -1,5 +1,6 @@
-"""LLM reasoning layer."""
+"""LLM reasoning layer: one arbiter, any provider supported by LiteLLM."""
 
-from .gemini import analyze, build_context, parse_verdict, verdict_from_dict
+from .common import build_context, parse_verdict, verdict_from_dict
+from .providers import COMMON_KINDS, TEMPLATES, ProviderConfig
 
-__all__ = ["analyze", "build_context", "parse_verdict", "verdict_from_dict"]
+__all__ = ["COMMON_KINDS", "TEMPLATES", "ProviderConfig", "build_context", "parse_verdict", "verdict_from_dict"]

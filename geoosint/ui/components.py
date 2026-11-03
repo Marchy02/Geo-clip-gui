@@ -184,7 +184,10 @@ def formats_card(lat: float, lon: float) -> str:
 
 def ai_card(ai: AiVerdict | None) -> str:
     if ai is None:
-        return empty("Aggiungi una chiave Gemini nelle opzioni di analisi per far incrociare gli indizi all'IA.", "Arbitro IA non eseguito")
+        return empty(
+            "Configura un provider IA in Impostazioni > Provider IA per far incrociare gli indizi a un modello linguistico.",
+            "Arbitro IA non eseguito",
+        )
     if ai.error:
         return error_card(ai.error, "L'arbitro IA non ha risposto")
     stance = "con prove indipendenti" if ai.override else "senza prove sufficienti per un punto preciso"

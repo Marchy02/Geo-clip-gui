@@ -1,4 +1,4 @@
 # Installazione completa (tutti i motori). Per un'installazione modulare usa gli extra:
 #   pip install -e .            -> solo core (dashboard, metadati, forense, coordinate, sole, report)
-#   pip install -e ".[all]"     -> core + GeoCLIP + OCR + YOLO + Gemini + HEIC
+#   pip install -e ".[all]"     -> core + GeoCLIP + OCR + YOLO + arbitro IA (LiteLLM) + HEIC
 -e .[all]

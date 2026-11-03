@@ -7,6 +7,8 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 
+from .ai.providers import ProviderConfig, default_providers
+
 try:  # python-dotenv is optional
     from dotenv import load_dotenv
 
@@ -52,11 +54,10 @@ def _env_list(name: str, default: list[str]) -> list[str]:
 
 @dataclass(frozen=True)
 class Settings:
-    # --- LLM arbiter (Google Gemini) ---
-    gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_search: bool = True
-    gemini_timeout_s: int = 120
+    # --- LLM arbiter (any LiteLLM provider; configured in the Impostazioni panel) ---
+    ai_providers: tuple[ProviderConfig, ...] = ()
+    ai_provider: str = "gemini"  # id of the active provider
+    ai_timeout_s: int = 120
 
     # --- GeoCLIP ---
     geoclip_preset: str = "world"
@@ -85,10 +86,9 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
-            gemini_api_key=_env_str("GEMINI_API_KEY") or _env_str("GOOGLE_API_KEY"),
-            gemini_model=_env_str("GEMINI_MODEL", cls.gemini_model),
-            gemini_search=_env_bool("GEMINI_SEARCH", cls.gemini_search),
-            gemini_timeout_s=_env_int("GEMINI_TIMEOUT", cls.gemini_timeout_s),
+            ai_providers=default_providers(_env_str("GEMINI_MODEL", "gemini-2.5-flash"), _env_bool("GEMINI_SEARCH", True)),
+            ai_provider=_env_str("AI_PROVIDER", cls.ai_provider),
+            ai_timeout_s=_env_int("AI_TIMEOUT", _env_int("GEMINI_TIMEOUT", cls.ai_timeout_s)),
             geoclip_preset=_env_str("GEOCLIP_PRESET", cls.geoclip_preset),
             geoclip_top_k=_env_int("GEOCLIP_TOP_K", cls.geoclip_top_k),
             yolo_model=_env_str("YOLO_MODEL", cls.yolo_model),
@@ -109,7 +109,35 @@ class Settings:
         """Return a copy with the given (non-None) fields replaced."""
         return replace(self, **{k: v for k, v in changes.items() if v is not None})
 
+    def with_user_config(self, data: dict) -> Settings:
+        """Apply what was saved from the dashboard on top of the environment."""
+        from .user_config import general_overrides
+
+        changes: dict = general_overrides(data)
+        ai = data.get("ai") or {}
+        if isinstance(ai.get("providers"), list):
+            providers = []
+            for item in ai["providers"]:
+                if isinstance(item, dict):
+                    p = ProviderConfig.from_dict(item)
+                    if all(p.id != q.id for q in providers):
+                        providers.append(p)
+            changes["ai_providers"] = tuple(providers)
+        if ai.get("active"):
+            changes["ai_provider"] = str(ai["active"])
+        return replace(self, **changes)
+
+    def provider(self, provider_id: str | None = None) -> ProviderConfig | None:
+        """The provider with this id, else the active one, else the first enabled one."""
+        by_id = {p.id: p for p in self.ai_providers}
+        for pid in (provider_id, self.ai_provider):
+            if pid and pid in by_id and by_id[pid].enabled:
+                return by_id[pid]
+        return next((p for p in self.ai_providers if p.enabled), None)
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings.from_env()
+    from . import user_config
+
+    return Settings.from_env().with_user_config(user_config.load())
